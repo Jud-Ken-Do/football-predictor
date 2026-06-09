@@ -153,3 +153,28 @@ Records actual results to `data/wc2026_actual_results.json`. Next run of `predic
 - **RTS smoother for training only**: Using future data to improve past strength estimates is only valid for training (non-causal). Prediction always uses forward-only EKF.
 - **Friendly weighting not exclusion**: Include at 0.3× — friendlies carry signal for Elo calibration and form for infrequently-playing teams.
 - **Venue effects for WC 2026 only**: `venue_wc2026` silently returns zeros for historical rows (no venue column), contributing only when predicting WC 2026 fixtures. No code path changes needed.
+
+## Git branches
+
+- `main` — working system, competition submission ready
+- `improvements` — active development branch for known issues
+
+## What's working
+
+- Full pipeline runs end-to-end in ~60s
+- 17 active feature modules, ~218 features
+- XGBoost + Temperature Scaling + BayesPoisson + Ensemble stack
+- Monte Carlo tournament simulator (50k sims default)
+- Group-level score optimiser for competition (maximises expected points incl. advancement bonus)
+- `scripts/update_wc2026.py` — live result ingestion, Kalman EKF updates
+- `scripts/backtest.py` — WC 2022 evaluation with SHAP + calibration plots
+- `scripts/generate_submission.py` — competition output.csv
+- `notebooks/tutorial.ipynb` — step-by-step walkthrough
+
+## Known issues (see KNOWN_ISSUES.md for full detail)
+
+1. **WC-specific features are zero in training** — sofifa, squad_wc2026, api_form, venue_wc2026 only have values for WC 2026 targets, never during training. XGBoost can't learn from them.
+2. **Kalman RTS smoother leaks future data into training features** — causal states should be used for training
+3. **Third-place advancement not optimised in submission** — +3 pts bonus for 8 best third-place teams ignored
+4. **Validation too thin** — only WC 2022 (64 matches); need rolling backtest across WC 2018 + 2022
+5. **Static ensemble blend** — single α=0.60 for all matches; should adapt to match context
