@@ -1,0 +1,28 @@
+Hi Everyone, as promised (though a bit late), here is the ruleset for the official Rotate 2026 World Cup prediction game. One thing has changed since last time though: you will now be predicting the GROUP STAGES ONLY. We will then run the same exact model to predict the final bracket once the group stage is finished (this is due to how FIFA rules have recently changed and allowed some of the 3rd best teams to make it through, making it extremely hard to get everyone's predictions through the end).
+ 
+The concept:
+ 
+Build a model that predicts the World Cup group stages. Any model, based on anything - the only rule is it has to be based on something. "Tallest squad wins every match," most vowels in the country name, an Elo system, FIFA rankings, betting odds, a Monte Carlo simulation - all fine. If you can explain why it picks what it picks, it counts.
+ 
+Enter alone or in teams. Same leaderboard either way (good way to pair a spreadsheet person with an ideas person). 4 people max! And please come up with a cool name.
+ 
+Deadline: end of day 10 June (locks before kickoff on the 11th).
+ 
+Submit one zipped folder (named with your team name) with three things:
+	1.	The model — Excel or Python, self-contained (web data is fine, just make sure it runs end-to-end without us having to look for the data).
+	2.	output.csv — your prediction (format below).
+	3.	A short explanation — a paragraph on what it's based on.
+Here's how the scoring goes:
+ 
+Per match (all group stage games):
+	•	Exact score → 5 pts
+	•	Right winner/draw and right goal difference, but not the exact score (e.g. you put 2–0, it ends 3–1) → 3 pts
+	•	Right winner/draw only → 2 pts
+	•	Otherwise → 0
+Progression bonus:
+	•	Each team you correctly tip to get out of its group (i.e. reach the Round of 32) → +3 pts each
+Drop your folder (team name as the name) in this location by 10 June. 
+Any questions → send us a DM.
+ 
+May the best win!
+The W.A.T.C.H
