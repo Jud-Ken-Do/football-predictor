@@ -194,10 +194,21 @@ The 2026 World Cup (USA/Canada/Mexico) introduces a new format: 48 teams in 12 g
 19. ✅ API-Football integration — `features/api_form.py` (pre-cached last-10-match form, api-sports.io)
 20. ✅ Venue effects — `features/venue_wc2026.py` (partial home adv MEX/USA/CAN, altitude CDMX=2240m, travel burden by confederation)
 21. ✅ Post-match live updating — `scripts/update_wc2026.py` + integration in `predict_wc2026.py`
-22. ✅ Backtest — `scripts/backtest.py` (WC 2018/2022, log-loss, Brier, ECE, calibration plot, SHAP)
-23. ⬜ GNN model — `models/gnn.py` (HIGFormer-style, requires Wyscout/StatsBomb event-level data)
-24. ⬜ Betting odds module — `features/odds.py` (strongest single predictor; needs odds data source)
-25. ⬜ Transfermarkt squad value — `features/transfermarkt.py` (confirmed predictive in Groll 2018)
+22. ✅ Backtest — `scripts/backtest.py` (WC 2014/2018/2022 + continental tournaments; bootstrap 95% CI on log-loss/Brier; SHAP + calibration plots)
+23. ✅ Betting odds module — `features/odds.py` (bookmaker closing odds from football-data.co.uk; `odds_available` flag drives context-adaptive ensemble)
+24. ✅ Transfermarkt squad value — `features/transfermarkt.py` (squad market values, June 2026; confirmed predictive in Groll 2018)
+25. ✅ Match-importance weighting — all three rating systems (Elo K, Glicko-2 v_inv/delta, Kalman R) scale with `match_weight`
+26. ✅ BayesPoisson scientific fixes — home prior N(0.20, 0.15²); half-life derived from Kalman EM-tuned q; Dixon-Coles ρ correction for low-score cells
+27. ✅ Context-adaptive ensemble — per-match α = sigmoid(w · [odds_available, kalman_uncertainty, log1p_h2h]) replaces static scalar
+28. ✅ Kalman EM Q-tuning — Shumway-Stoffer M-step estimates process noise q from smoothed states; exposes `get_last_tuned_q()` for BayesPoisson half-life derivation
+29. ✅ WC feature covariate-shift fix — 5 WC-specific modules moved to `WC_CONTEXT_MODULES`; applied as post-processing in `wc_context.py`
+30. ✅ Player absence penalty — market-value-weighted log-odds shift from `data/wc2026_player_injuries.json` in `wc_context.py`
+31. ✅ Star player features — `fc26_star_rating`, `fc26_top3_premium`, `fc26_squad_depth` added to `sofifa_ratings.py`
+32. ✅ Monte Carlo λ resampling — Kalman posterior uncertainty (√P diagonal) propagates to lognormal λ resampling per simulation draw
+33. ✅ Confederation calibration — `scripts/calibrate_confederations.py`; offsets updated from H2H win-rate gaps (CONMEBOL=65 > UEFA=50 > AFC=25 > CAF=10 > CONCACAF=−20)
+34. ✅ Correlation pruning — `prune_correlated_features(threshold=0.95)` in `pipeline.py`; removes near-duplicate features before XGBoost training
+35. ✅ Optuna hyperparameter tuning — `GradientBoostModel.tune_hyperparameters()` with TPE sampler, 60 trials; `--tune` flag in pipeline
+36. ⬜ GNN model — `models/gnn.py` (HIGFormer-style, requires Wyscout/StatsBomb event-level data)
 
 ---
 

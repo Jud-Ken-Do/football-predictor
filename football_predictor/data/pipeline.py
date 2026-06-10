@@ -64,6 +64,47 @@ def build_feature_matrix(
     return X, y
 
 
+def prune_correlated_features(
+    X: pd.DataFrame,
+    threshold: float = 0.95,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Remove near-duplicate features with |Pearson r| > threshold.
+
+    For each correlated pair, the feature with lower variance is dropped —
+    higher variance implies more discriminative power. This reduces feature
+    count for XGBoost (faster training, cleaner SHAP) without information loss
+    because the kept feature encodes the same signal.
+
+    Returns (pruned_X, list_of_dropped_column_names).
+    """
+    if X.shape[1] < 2:
+        return X, []
+
+    corr = X.corr().abs()
+    upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+    variances = X.var()
+
+    to_drop: set[str] = set()
+    for col in upper.columns:
+        if col in to_drop:
+            continue
+        correlated = upper.index[upper[col] > threshold].tolist()
+        for other in correlated:
+            if other in to_drop:
+                continue
+            if variances.get(col, 0.0) >= variances.get(other, 0.0):
+                to_drop.add(other)
+            else:
+                to_drop.add(col)
+                break  # col itself is being dropped; stop comparing it
+
+    dropped = sorted(to_drop)
+    if dropped:
+        logger.info("prune_correlated_features: dropped %d / %d  (threshold=%.2f)",
+                    len(dropped), X.shape[1], threshold)
+    return X.drop(columns=dropped), dropped
+
+
 def split_train_test(
     matches: pd.DataFrame,
     test_seasons: list[str],

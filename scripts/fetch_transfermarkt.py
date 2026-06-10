@@ -163,7 +163,7 @@ def main() -> None:
     values = fetch_all(force=args.force)
     print(f"\n{'Team':<30}  {'Value (€M)':>12}")
     print("-" * 45)
-    for team, val in sorted(values.items(), key=lambda x: -x[1]):
+    for team, val in sorted(((k, v) for k, v in values.items() if isinstance(v, (int, float))), key=lambda x: -x[1]):
         print(f"{team:<30}  {val:>12.1f}")
 
 

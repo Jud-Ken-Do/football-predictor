@@ -9,6 +9,14 @@ import pandas as pd
 from xgboost import XGBClassifier
 from sklearn.model_selection import cross_val_score
 
+_DEFAULT_PARAMS = {
+    "n_estimators": 500,
+    "max_depth": 4,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+}
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,11 +35,11 @@ class GradientBoostModel:
 
     def __init__(
         self,
-        n_estimators: int = 500,
-        max_depth: int = 4,
-        learning_rate: float = 0.05,
-        subsample: float = 0.8,
-        colsample_bytree: float = 0.8,
+        n_estimators: int = _DEFAULT_PARAMS["n_estimators"],
+        max_depth: int = _DEFAULT_PARAMS["max_depth"],
+        learning_rate: float = _DEFAULT_PARAMS["learning_rate"],
+        subsample: float = _DEFAULT_PARAMS["subsample"],
+        colsample_bytree: float = _DEFAULT_PARAMS["colsample_bytree"],
         random_state: int = 42,
     ):
         self.model = XGBClassifier(
@@ -57,6 +65,8 @@ class GradientBoostModel:
 
     def predict_proba(self, X: pd.DataFrame) -> pd.DataFrame:
         """Return a DataFrame with columns home_win, draw, away_win."""
+        if self._feature_names and list(X.columns) != self._feature_names:
+            X = X.reindex(columns=self._feature_names, fill_value=0.0)
         proba = self.model.predict_proba(X.values)
         return pd.DataFrame(proba, columns=self.OUTCOME_LABELS, index=X.index)
 
@@ -75,6 +85,78 @@ class GradientBoostModel:
             self.model.feature_importances_,
             index=self._feature_names,
         ).sort_values(ascending=False)
+
+    def tune_hyperparameters(
+        self,
+        val_splits: list[tuple[pd.DataFrame, pd.Series, np.ndarray, pd.DataFrame, pd.Series]],
+        n_trials: int = 60,
+        random_state: int = 42,
+    ) -> dict:
+        """Bayesian hyperparameter optimisation using Optuna (time-series CV splits).
+
+        Each split is a tuple (X_train, y_train, sample_weight, X_val, y_val) produced
+        by a time-ordered train/val cut — NOT random k-fold, which would leak future data.
+
+        After tuning, rebuilds self.model with the best parameters so that the next
+        call to fit() uses them automatically.
+
+        Requires: pip install optuna
+
+        Example usage in pipeline:
+            splits = [
+                (X_pre2018, y_pre2018, sw_pre2018, X_wc2018, y_wc2018),
+                (X_pre2022, y_pre2022, sw_pre2022, X_wc2022, y_wc2022),
+            ]
+            xgb.tune_hyperparameters(splits, n_trials=80)
+            xgb.fit(X_full, y_full, sample_weight=sw_full)
+        """
+        try:
+            import optuna
+            optuna.logging.set_verbosity(optuna.logging.WARNING)
+        except ImportError:
+            logger.warning("optuna not installed — skipping tuning. Run: pip install optuna")
+            return {}
+
+        def _ll(proba: np.ndarray, y: np.ndarray) -> float:
+            return float(-np.mean(np.log(np.maximum(proba[np.arange(len(y)), y], 1e-10))))
+
+        def objective(trial: "optuna.Trial") -> float:
+            params = {
+                "n_estimators":      trial.suggest_int("n_estimators", 200, 900),
+                "max_depth":         trial.suggest_int("max_depth", 3, 6),
+                "learning_rate":     trial.suggest_float("learning_rate", 0.005, 0.15, log=True),
+                "subsample":         trial.suggest_float("subsample", 0.6, 1.0),
+                "colsample_bytree":  trial.suggest_float("colsample_bytree", 0.5, 1.0),
+                "min_child_weight":  trial.suggest_int("min_child_weight", 1, 15),
+                "reg_lambda":        trial.suggest_float("reg_lambda", 0.5, 30.0, log=True),
+                "gamma":             trial.suggest_float("gamma", 0.0, 1.0),
+            }
+            fold_losses = []
+            for X_tr, y_tr, sw_tr, X_val, y_val in val_splits:
+                m = XGBClassifier(
+                    **params,
+                    objective="multi:softprob", num_class=3,
+                    eval_metric="mlogloss", use_label_encoder=False,
+                    random_state=random_state, verbosity=0,
+                )
+                m.fit(X_tr.values, y_tr.values, sample_weight=sw_tr)
+                fold_losses.append(_ll(m.predict_proba(X_val.values), y_val.values))
+            return float(np.mean(fold_losses))
+
+        study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=random_state))
+        study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
+
+        best = study.best_params
+        logger.info("Tuning complete. Best params: %s  log-loss=%.4f", best, study.best_value)
+        print(f"  [XGB tuning] best log-loss={study.best_value:.4f}  params={best}")
+
+        self.model = XGBClassifier(
+            **best,
+            objective="multi:softprob", num_class=3,
+            eval_metric="mlogloss", use_label_encoder=False,
+            random_state=random_state, verbosity=0,
+        )
+        return best
 
     def save(self, path: pathlib.Path) -> None:
         self.model.save_model(str(path))

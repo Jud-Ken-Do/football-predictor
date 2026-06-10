@@ -33,7 +33,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize
+from scipy.optimize import minimize, minimize_scalar
 from scipy.stats import poisson
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ class BayesianPoissonModel:
 
     def __init__(
         self,
-        half_life_days: int = 120,
+        half_life_days: int = 365,
         sigma_att: float = 1.0,
         sigma_def: float = 1.0,
     ) -> None:
@@ -60,6 +60,25 @@ class BayesianPoissonModel:
         self.sigma_def = sigma_def
         self._params: Optional[dict] = None
         self._teams: list[str] = []
+        self._rho: float = 0.0  # Dixon-Coles goal correlation (fitted by fit_rho)
+
+    @staticmethod
+    def half_life_from_q(q_per_year: float, p0_diag: float = 0.16) -> int:
+        """Derive a BayesPoisson half-life (days) consistent with the Kalman process noise q.
+
+        The Kalman random-walk model says team strength drifts with annual variance q².
+        An old observation loses usefulness when the accumulated drift uncertainty
+        (q² × T) exceeds the initial state uncertainty (P0).  Setting q²T = P0 gives
+        the 'information horizon' T_years = P0/q².  We use half that as the half-life.
+
+        Result is clamped to [180, 730] days so it stays practically meaningful:
+          q=0.10 → 2920 d → capped at 730 (slow drift, long memory)
+          q=0.15 → 1300 d → capped at 730
+          q=0.25 →  467 d → capped at 467 (fast drift, shorter memory)
+          q=0.40 →  182 d → 182 days
+        """
+        years = p0_diag / (2.0 * max(q_per_year, 1e-4) ** 2)
+        return max(180, min(730, int(365.0 * years)))
 
     def fit(self, matches: pd.DataFrame) -> "BayesianPoissonModel":
         df = matches.copy()
@@ -99,7 +118,9 @@ class BayesianPoissonModel:
             lam_a = np.exp(mu + att[ai] + dff[hi]).clip(min=1e-6)
 
             nll = -np.dot(w, poisson.logpmf(hg, lam_h) + poisson.logpmf(ag, lam_a))
-            reg = (att ** 2).sum() / (2 * s2_att) + (dff ** 2).sum() / (2 * s2_def) + ha ** 2 / 0.5
+            # Home advantage prior: N(0.20, 0.15²) — centred on empirical log-goals HA,
+            # not zero.  The old prior N(0, √0.5) pulled estimates toward zero home advantage.
+            reg = (att ** 2).sum() / (2 * s2_att) + (dff ** 2).sum() / (2 * s2_def) + (ha - 0.20) ** 2 / (2 * 0.15 ** 2)
             return nll + reg
 
         x0 = np.zeros(2 + 2 * (n - 1))
@@ -124,6 +145,90 @@ class BayesianPoissonModel:
         }
         return self
 
+    def fit_rho(self, matches: pd.DataFrame) -> "BayesianPoissonModel":
+        """Estimate Dixon-Coles goal correlation ρ from model residuals.
+
+        After MAP fitting, ρ captures the negative correlation between home and
+        away goals that a product-Poisson model misses: teams defend a lead,
+        so close games produce fewer goals than independent Poisson predicts.
+        Only the four low-score cells {(0,0),(0,1),(1,0),(1,1)} carry the signal —
+        higher scorelines are indistinguishable from independent Poisson.
+
+        Typical value: ρ ≈ −0.05 to −0.15 for international football.
+
+        References:
+            Dixon, M.J. & Coles, S.G. (1997). Modelling association football
+            scores and inefficiencies in the football betting market.
+            JRSS-C, 46(2), 265-280.
+        """
+        if self._params is None:
+            raise RuntimeError("Must call fit() before fit_rho().")
+
+        df = matches.copy()
+        df["date"] = pd.to_datetime(df["date"])
+        neutral_arr = df.get("neutral", pd.Series(False, index=df.index)).values.astype(bool)
+
+        lam_hs, lam_as, hg_arr, ag_arr = [], [], [], []
+        for i, (_, row) in enumerate(df.iterrows()):
+            lam_h = self._lambda(row["home_team"], row["away_team"], home=not bool(neutral_arr[i]))
+            lam_a = self._lambda(row["away_team"], row["home_team"], home=False)
+            lam_hs.append(lam_h)
+            lam_as.append(lam_a)
+            hg_arr.append(int(row["home_goals"]))
+            ag_arr.append(int(row["away_goals"]))
+
+        lam_hs = np.array(lam_hs)
+        lam_as = np.array(lam_as)
+        hg_arr = np.array(hg_arr)
+        ag_arr = np.array(ag_arr)
+
+        low = (hg_arr <= 1) & (ag_arr <= 1)
+        lh, la, hg, ag = lam_hs[low], lam_as[low], hg_arr[low], ag_arr[low]
+
+        def _tau(h: int, a: int, lam_h: float, lam_a: float, rho: float) -> float:
+            if h == 0 and a == 0:
+                return 1.0 - lam_h * lam_a * rho
+            if h == 0 and a == 1:
+                return 1.0 + lam_h * rho
+            if h == 1 and a == 0:
+                return 1.0 + lam_a * rho
+            if h == 1 and a == 1:
+                return 1.0 - rho
+            return 1.0
+
+        def neg_ll(rho: float) -> float:
+            total = 0.0
+            for h_i, a_i, lh_i, la_i in zip(hg, ag, lh, la):
+                t = _tau(int(h_i), int(a_i), float(lh_i), float(la_i), rho)
+                if t <= 0:
+                    return 1e10
+                total -= math.log(t)
+            return total
+
+        max_prod = float((lh * la).max()) if len(lh) > 0 else 1.0
+        rho_upper = min(0.3, 0.99 / max(max_prod, 1e-4))
+
+        res = minimize_scalar(neg_ll, bounds=(-0.3, rho_upper), method="bounded")
+        self._rho = float(res.x)
+        logger.info("DC ρ=%.4f (low-score correlation; %d low-scoring matches)", self._rho, int(low.sum()))
+        print(f"  [BayesPoisson] DC ρ={self._rho:.4f}  (goal correlation correction)")
+        return self
+
+    def _dc_tau(self, h: int, a: int, lam_h: float, lam_a: float) -> float:
+        """Dixon-Coles low-score correction factor for cell (h, a)."""
+        rho = self._rho
+        if rho == 0.0:
+            return 1.0
+        if h == 0 and a == 0:
+            return max(1.0 - lam_h * lam_a * rho, 1e-8)
+        if h == 0 and a == 1:
+            return max(1.0 + lam_h * rho, 1e-8)
+        if h == 1 and a == 0:
+            return max(1.0 + lam_a * rho, 1e-8)
+        if h == 1 and a == 1:
+            return max(1.0 - rho, 1e-8)
+        return 1.0
+
     def _lambda(self, attacking: str, defending: str, home: bool) -> float:
         p = self._params
         return max(math.exp(
@@ -145,7 +250,7 @@ class BayesianPoissonModel:
         ph = pd = pa = 0.0
         for h in range(_MAX_GOALS + 1):
             for a in range(_MAX_GOALS + 1):
-                p = poisson.pmf(h, lam_h) * poisson.pmf(a, lam_a)
+                p = poisson.pmf(h, lam_h) * poisson.pmf(a, lam_a) * self._dc_tau(h, a, lam_h, lam_a)
                 if h > a:
                     ph += p
                 elif h == a:

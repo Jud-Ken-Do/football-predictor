@@ -1,4 +1,8 @@
 #!/usr/bin/env python3.11
+# STATUS: Utility script — still valid but rarely needed. The xg_form module reads
+# WorldCup2026.xlsx directly and falls back to data/xg_fbref.json. Only run this
+# if you want to generate data/xg_proxy.json from HS/AS/HST/AST shot columns for
+# CAF/CONCACAF matches that lack StatsBomb xG.
 """Build proxy xG from shots data for matches missing StatsBomb xG.
 
 Uses the WorldCup2026.xlsx qualifier sheet which has HS/AS/HST/AST columns

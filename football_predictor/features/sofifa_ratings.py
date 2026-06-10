@@ -74,6 +74,14 @@ def _load_fc26() -> dict[str, dict[str, float]]:
             sub = squad[positions.apply(pred)]
             feats[f"fc26_{pos_key}_overall"] = float(sub["overall"].mean()) if len(sub) > 0 else feats["fc26_overall"]
 
+        # Star player features — expert systems track individual player quality,
+        # not just squad averages. These proxy that signal without event-level data.
+        overall_vals = squad["overall"].dropna()
+        top3 = overall_vals.nlargest(3)
+        feats["fc26_star_rating"] = float(overall_vals.max())               # best player
+        feats["fc26_top3_premium"] = float(top3.mean() - overall_vals.mean())  # star reliance
+        feats["fc26_squad_depth"] = float(overall_vals.std())               # homogeneity (low = resilient)
+
         result[str(nat_name)] = feats
 
     return result
@@ -83,6 +91,9 @@ def _zero() -> dict[str, float]:
     feats: dict[str, float] = {f"fc26_{c}": 0.0 for c in _ATTR_COLS}
     for pos_key in _POS_MAP:
         feats[f"fc26_{pos_key}_overall"] = 0.0
+    feats["fc26_star_rating"] = 0.0
+    feats["fc26_top3_premium"] = 0.0
+    feats["fc26_squad_depth"] = 0.0
     return feats
 
 
@@ -111,7 +122,8 @@ class SoFIFARatingsFeatures(FeatureModule):
             out[f"sofifa_away_{k}"] = a[k]
 
         # Key diffs — most predictive for the model
-        for attr in ["overall", "pace", "shooting", "passing", "dribbling", "defending", "physic"]:
+        for attr in ["overall", "pace", "shooting", "passing", "dribbling", "defending", "physic",
+                     "star_rating", "top3_premium", "squad_depth"]:
             out[f"sofifa_diff_{attr}"] = h.get(f"fc26_{attr}", 0.0) - a.get(f"fc26_{attr}", 0.0)
 
         return out

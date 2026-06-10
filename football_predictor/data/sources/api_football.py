@@ -7,7 +7,7 @@ Usage:
     python3.11 scripts/fetch_wc2026_injuries.py   # run before each match day
 
 Environment:
-    API_SPORTS_KEY=<your_key>  in .env
+    API_FOOTBALL_KEY=<your_key>  in .env
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 _BASE = "https://v3.football.api-sports.io"
-_KEY  = os.getenv("API_SPORTS_KEY", "")
+_KEY  = os.getenv("API_FOOTBALL_KEY", "")
 _HEADERS = {"x-apisports-key": _KEY}
 
 _CACHE_DIR  = Path(__file__).resolve().parents[3] / "data"
@@ -41,7 +41,7 @@ _WC2026_SEASON    = 2026
 
 def _get(endpoint: str, params: dict) -> dict:
     if not _KEY:
-        raise RuntimeError("API_SPORTS_KEY not set in .env")
+        raise RuntimeError("API_FOOTBALL_KEY not set in .env")
     r = requests.get(f"{_BASE}/{endpoint}", headers=_HEADERS, params=params, timeout=15)
     r.raise_for_status()
     data = r.json()

@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 from football_predictor.data.sources.international_results import fetch_training_data
-from football_predictor.data.pipeline import build_feature_matrix
+from football_predictor.data.pipeline import build_feature_matrix, prune_correlated_features
 from football_predictor.data.wc2026 import GROUPS, GROUP_STAGE_SCHEDULE, normalise
 from football_predictor.models.gradient_boost import GradientBoostModel
 from football_predictor.models.bayesian_poisson import BayesianPoissonModel
@@ -166,6 +166,7 @@ def train_model(
 
     t0 = time.time()
     X, y = build_feature_matrix(train_df, DEFAULT_FEATURE_MODULES, context=all_data)
+    X, _ = prune_correlated_features(X, threshold=0.95)
     sw = train_df["match_weight"].values
     if not quiet:
         print(f"  {X.shape[1]} features in {time.time()-t0:.1f}s")
@@ -184,7 +185,9 @@ def train_model(
 
     # Bayesian Hierarchical Poisson — trained on same 80% split as XGB so the
     # held-out 20% is genuinely out-of-sample for both models when fitting ensemble α.
-    bp = BayesianPoissonModel()
+    from football_predictor.features.kalman_strength import KalmanStrengthFeatures
+    _q = KalmanStrengthFeatures.get_last_tuned_q()
+    bp = BayesianPoissonModel(half_life_days=BayesianPoissonModel.half_life_from_q(_q))
     if use_mcmc:
         if not quiet:
             print("Fitting Bayesian Poisson (MCMC — this takes ~5 min)...")
@@ -197,7 +200,7 @@ def train_model(
     # Ensemble: learn optimal blend on held-out calibration set
     bp_proba_cal = _bp_proba_df(bp, train_df.iloc[cut:])
     ensemble = EnsembleModel()
-    ensemble.fit(xgb_proba_cal, bp_proba_cal, cal_y)
+    ensemble.fit(xgb_proba_cal, bp_proba_cal, cal_y, context_X=cal_X)
 
     # Refit BP on full training data now that ensemble weight is fixed —
     # more data improves the goal-rate estimates used in prediction.
@@ -205,6 +208,7 @@ def train_model(
         bp.fit_mcmc(train_df, draws=mcmc_draws, tune=mcmc_tune)
     else:
         bp.fit(train_df)
+    bp.fit_rho(train_df)
     if not quiet:
         print(f"  Ensemble: XGB={ensemble.xgb_weight:.2f}  BayesPoisson={ensemble.bp_weight:.2f}")
 
@@ -243,9 +247,14 @@ def predict_group_stage(
     if "date" not in match_df.columns:
         match_df["date"] = "2026-06-15"
 
-    # XGBoost + temperature scaling
+    from football_predictor.models.wc_context import build_wc_context, apply_to_match
+
+    # XGBoost + temperature scaling (trained on DEFAULT_FEATURE_MODULES only)
     X_gs, _ = build_feature_matrix(match_df, DEFAULT_FEATURE_MODULES, context=all_data)
     xgb_proba = temp_cal.transform(xgb.predict_proba(X_gs))
+
+    # WC-context features (venue, sofifa, api_form, injury — not fed to XGBoost)
+    ctx_gs = build_wc_context(match_df, all_data)
 
     results = []
     for i, f in enumerate(fixtures):
@@ -257,38 +266,74 @@ def predict_group_stage(
 
         # Ensemble blend
         xgb_row = xgb_proba.iloc[[i]].reset_index(drop=True)
-        ens_row = ensemble.predict_proba(xgb_row, bp_row)
-
-        p_h = float(ens_row["home_win"].iloc[0])
-        p_d = float(ens_row["draw"].iloc[0])
-        p_a = float(ens_row["away_win"].iloc[0])
+        ens_row = ensemble.predict_proba(xgb_row, bp_row, context_X=X_gs.iloc[[i]].reset_index(drop=True))
 
         lam_h, lam_a = bp.get_lambdas(normalise(home), normalise(away), neutral=True)
+        ctx_row = ctx_gs.iloc[i].to_dict() if i < len(ctx_gs) else {}
+
+        # Apply WC context: venue λ-adjustment + quality log-odds nudge
+        p_h, p_d, p_a, lam_h_adj, lam_a_adj = apply_to_match(
+            lam_h, lam_a,
+            float(ens_row["home_win"].iloc[0]),
+            float(ens_row["draw"].iloc[0]),
+            float(ens_row["away_win"].iloc[0]),
+            ctx_row,
+            apply_venue=True,
+            home_team=home,
+            away_team=away,
+        )
+
+        # Kalman uncertainty in log(λ): σ_log(λ_h) ≈ √(σ²_att_h + σ²_def_a)
+        # Used in Monte Carlo to resample goal rates per simulation run.
+        import math as _math
+        h_att_std = float(X_gs.iloc[i].get("kalman_home_att_std", 0.0))
+        a_def_std = float(X_gs.iloc[i].get("kalman_away_def_std", 0.0))
+        a_att_std = float(X_gs.iloc[i].get("kalman_away_att_std", 0.0))
+        h_def_std = float(X_gs.iloc[i].get("kalman_home_def_std", 0.0))
+        lam_h_log_std = _math.sqrt(h_att_std ** 2 + a_def_std ** 2)
+        lam_a_log_std = _math.sqrt(a_att_std ** 2 + h_def_std ** 2)
 
         results.append({
             **f,
             "p_home": p_h, "p_draw": p_d, "p_away": p_a,
-            "bp_lam_home": lam_h, "bp_lam_away": lam_a,
+            "bp_lam_home": lam_h_adj, "bp_lam_away": lam_a_adj,
+            "kalman_lam_h_log_std": lam_h_log_std,
+            "kalman_lam_a_log_std": lam_a_log_std,
         })
     return results
 
 
 # ── Monte Carlo core ──────────────────────────────────────────────────────────
 
-def simulate_goals(p_home: float, p_draw: float, p_away: float,
-                   lam_h: float, lam_a: float) -> tuple[int, int]:
-    """Sample a scoreline using XGBoost outcome probs for direction, DC lambdas for magnitude."""
+def simulate_goals(
+    p_home: float,
+    p_draw: float,
+    p_away: float,
+    lam_h: float,
+    lam_a: float,
+    lam_h_log_std: float = 0.0,
+    lam_a_log_std: float = 0.0,
+) -> tuple[int, int]:
+    """Sample a scoreline using ensemble outcome probs for direction, Poisson for magnitude.
+
+    When Kalman log-λ uncertainty (lam_h_log_std / lam_a_log_std) is provided,
+    goal rates are resampled from their posterior each call — propagating model
+    uncertainty into the tournament simulation rather than using point estimates.
+    The direction (win/draw/loss) still comes from the full ensemble so XGBoost
+    signal is preserved; only goal magnitude varies with the resampled λ.
+    """
+    if lam_h_log_std > 0.02:
+        lam_h = float(np.random.lognormal(np.log(max(lam_h, 1e-3)), lam_h_log_std))
+        lam_a = float(np.random.lognormal(np.log(max(lam_a, 1e-3)), lam_a_log_std))
+
     r = np.random.random()
     if r < p_home:
-        # home win
         hg = max(1, int(np.random.poisson(lam_h)))
         ag = max(0, min(hg - 1, int(np.random.poisson(lam_a))))
     elif r < p_home + p_draw:
-        # draw
         g = int(np.random.poisson((lam_h + lam_a) / 2))
         hg = ag = g
     else:
-        # away win
         ag = max(1, int(np.random.poisson(lam_a)))
         hg = max(0, min(ag - 1, int(np.random.poisson(lam_h))))
     return hg, ag
@@ -329,8 +374,12 @@ def simulate_group_stage(match_data: list[dict]) -> dict[str, list[dict]]:
         if m.get("played"):
             hg, ag = m["actual_home_goals"], m["actual_away_goals"]
         else:
-            hg, ag = simulate_goals(m["p_home"], m["p_draw"], m["p_away"],
-                                    m["bp_lam_home"], m["bp_lam_away"])
+            hg, ag = simulate_goals(
+                m["p_home"], m["p_draw"], m["p_away"],
+                m["bp_lam_home"], m["bp_lam_away"],
+                m.get("kalman_lam_h_log_std", 0.0),
+                m.get("kalman_lam_a_log_std", 0.0),
+            )
         group_results[m["group"]].append({
             "home_team": m["home_team"], "away_team": m["away_team"],
             "home_goals": hg, "away_goals": ag,
@@ -600,7 +649,7 @@ def predict_single_match(
     xgb_p  = temp_cal.transform(xgb.predict_proba(X))
     bp_p   = bp.predict_proba(normalise(home), normalise(away), neutral=True)
     bp_row = pd.DataFrame([bp_p], columns=["home_win", "draw", "away_win"])
-    ens    = ensemble.predict_proba(xgb_p.reset_index(drop=True), bp_row)
+    ens    = ensemble.predict_proba(xgb_p.reset_index(drop=True), bp_row, context_X=X.reset_index(drop=True))
 
     ph = float(ens["home_win"].iloc[0])
     pd_ = float(ens["draw"].iloc[0])
@@ -728,8 +777,11 @@ def main() -> None:
                     "tournament": "FIFA World Cup", "match_weight": 1.5,
                     "home_goals": 0, "away_goals": 0,
                 })
+    from football_predictor.models.wc_context import build_wc_context, quality_nudge
+
     pair_df = pd.DataFrame(pair_rows)
     X_pairs, _ = build_feature_matrix(pair_df, DEFAULT_FEATURE_MODULES, context=all_data)
+    ctx_pairs = build_wc_context(pair_df, all_data)
 
     # Ensemble: XGB + temperature scaling + BayesPoisson blend
     xgb_pairs = temp_cal.transform(xgb.predict_proba(X_pairs))
@@ -738,14 +790,16 @@ def main() -> None:
         p = bp.predict_proba(normalise(row["home_team"]), normalise(row["away_team"]), neutral=True)
         bp_pairs_rows.append(p)
     bp_pairs = pd.DataFrame(bp_pairs_rows, columns=["home_win", "draw", "away_win"])
-    ens_pairs = ensemble.predict_proba(xgb_pairs.reset_index(drop=True), bp_pairs)
+    ens_pairs = ensemble.predict_proba(xgb_pairs.reset_index(drop=True), bp_pairs, context_X=X_pairs.reset_index(drop=True))
 
     prob_cache: dict[tuple, tuple] = {}
     for i, row in pair_df.iterrows():
         p = ens_pairs.iloc[i]
-        prob_cache[(row["home_team"], row["away_team"])] = (
-            float(p["home_win"]), float(p["draw"]), float(p["away_win"])
+        ctx_row = ctx_pairs.iloc[i].to_dict() if i < len(ctx_pairs) else {}
+        p_h, p_d, p_a = quality_nudge(
+            float(p["home_win"]), float(p["draw"]), float(p["away_win"]), ctx_row
         )
+        prob_cache[(row["home_team"], row["away_team"])] = (p_h, p_d, p_a)
 
     if not args.quiet:
         print(f"  {len(prob_cache)} pairs cached")

@@ -3,6 +3,7 @@ from football_predictor.features.form import FormFeatures
 from football_predictor.features.elo import EloFeatures
 from football_predictor.features.glicko2 import Glicko2Features
 from football_predictor.features.kalman_strength import KalmanStrengthFeatures
+from football_predictor.features.sos import StrengthOfScheduleFeatures
 from football_predictor.features.standings import StandingsFeatures
 from football_predictor.features.h2h import H2HFeatures
 from football_predictor.features.rankings import RankingsFeatures
@@ -23,6 +24,7 @@ REGISTRY: dict[str, type[FeatureModule]] = {
     "elo": EloFeatures,
     "glicko2": Glicko2Features,
     "kalman_strength": KalmanStrengthFeatures,
+    "sos": StrengthOfScheduleFeatures,
     "standings": StandingsFeatures,
     "h2h": H2HFeatures,
     "rankings": RankingsFeatures,
@@ -41,7 +43,7 @@ REGISTRY: dict[str, type[FeatureModule]] = {
 
 __all__ = [
     "FeatureModule", "REGISTRY",
-    "FormFeatures", "EloFeatures", "Glicko2Features", "KalmanStrengthFeatures",
+    "FormFeatures", "EloFeatures", "Glicko2Features", "KalmanStrengthFeatures", "StrengthOfScheduleFeatures",
     "StandingsFeatures", "H2HFeatures", "RankingsFeatures", "ConfederationFeatures",
     "TournamentStageFeatures", "SquadStrengthFeatures", "InjuryFeatures",
     "SquadWC2026Features", "APIFormFeatures", "SoFIFARatingsFeatures",

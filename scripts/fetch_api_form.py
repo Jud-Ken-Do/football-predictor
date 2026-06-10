@@ -1,4 +1,4 @@
-"""Fetch last-10 international fixtures for all 48 WC 2026 teams from API-Football.
+"""Fetch last-20 international fixtures for all 48 WC 2026 teams from API-Football.
 
 Run before each round to refresh form data:
     python3.11 scripts/fetch_api_form.py
@@ -38,7 +38,7 @@ def main() -> None:
         team_id = team["id"]
         team_name = team["name"]
 
-        fixtures_data = get("fixtures", {"team": team_id, "last": 10})
+        fixtures_data = get("fixtures", {"team": team_id, "last": 20})
         fixtures = fixtures_data.get("response", [])
 
         cache[team_name] = {

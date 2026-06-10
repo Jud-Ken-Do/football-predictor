@@ -8,6 +8,8 @@ Three effects modelled:
      above 1500 m (Bohner et al. 2015, Sport. Med.).
   3. Travel burden — confederation distance from the host region.
      UEFA/CAF/AFC teams from the other side of the globe face greater fatigue.
+     Note: jet lag is NOT modelled — all squads travel to North America weeks before
+     the tournament and are fully acclimatised by match day.
 
 Features produced (8 total)
 ────────────────────────────
@@ -151,6 +153,7 @@ def _travel(team: str) -> float:
     return _TRAVEL_BURDEN.get(conf, 0.75)
 
 
+
 def _lookup_venue(venue_str: str) -> dict:
     for key, data in _VENUES.items():
         if key.lower() in venue_str.lower() or venue_str.lower() in key.lower():
@@ -181,12 +184,12 @@ class VenueWC2026Features(FeatureModule):
         a_alt = _altitude_adv(away, alt)
 
         return {
-            "venue_home_partial_adv":  h_home_adv,
-            "venue_away_partial_adv":  a_home_adv,
-            "venue_home_altitude_adv": h_alt,
-            "venue_away_altitude_adv": a_alt,
-            "venue_altitude_m":        alt / 2500.0,    # normalised
-            "venue_high_altitude":     1.0 if alt > _ALTITUDE_HIGH_M else 0.0,
+            "venue_home_partial_adv":   h_home_adv,
+            "venue_away_partial_adv":   a_home_adv,
+            "venue_home_altitude_adv":  h_alt,
+            "venue_away_altitude_adv":  a_alt,
+            "venue_altitude_m":         alt / 2500.0,
+            "venue_high_altitude":      1.0 if alt > _ALTITUDE_HIGH_M else 0.0,
             "venue_home_travel_burden": _travel(home),
             "venue_away_travel_burden": _travel(away),
         }

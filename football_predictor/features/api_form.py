@@ -48,10 +48,14 @@ _API_NAME_MAP: dict[str, str] = {
 }
 
 _FEATURE_KEYS = [
+    "win_rate_last5",  "weighted_pts_last5",
     "win_rate_last10", "draw_rate_last10", "loss_rate_last10",
     "goals_scored_avg_last10", "goals_conceded_avg_last10", "gd_avg_last10",
     "clean_sheet_rate_last10", "weighted_pts_last10",
-    "win_rate_last5", "weighted_pts_last5",
+    "win_rate_last15", "weighted_pts_last15",
+    "win_rate_last20", "draw_rate_last20", "loss_rate_last20",
+    "goals_scored_avg_last20", "goals_conceded_avg_last20", "gd_avg_last20",
+    "clean_sheet_rate_last20", "weighted_pts_last20",
     "has_api_form",
 ]
 _ZERO: dict[str, float] = {k: 0.0 for k in _FEATURE_KEYS}
@@ -65,7 +69,7 @@ def _weight(competition: str) -> float:
 
 
 def _compute_features(fixtures: list[dict], team_id: int) -> dict[str, float]:
-    """Compute form features from a list of fixture dicts (last 10, newest first)."""
+    """Compute form features from a list of fixture dicts (last 20, newest first)."""
     if not fixtures:
         return _ZERO.copy()
 
@@ -89,41 +93,57 @@ def _compute_features(fixtures: list[dict], team_id: int) -> dict[str, float]:
             return float(f["goals"]["away"] or 0)
         return float(f["goals"]["home"] or 0)
 
-    results10 = [result(f) for f in fixtures[:10]]
-    gf10 = [goals_for(f) for f in fixtures[:10]]
-    ga10 = [goals_against(f) for f in fixtures[:10]]
-    comps10 = [f["league"]["name"] for f in fixtures[:10]]
+    def _window(n: int) -> tuple:
+        sliced = fixtures[:n]
+        res = [result(f) for f in sliced]
+        gf  = [goals_for(f) for f in sliced]
+        ga  = [goals_against(f) for f in sliced]
+        comp = [f["league"]["name"] for f in sliced]
+        return res, gf, ga, comp
 
-    n = len(results10)
-    wins = results10.count("W")
-    draws = results10.count("D")
-    losses = results10.count("L")
+    def _stats(res: list, gf: list, ga: list, comp: list) -> dict:
+        n = max(len(res), 1)
+        pts_w = sum(
+            (3 if r == "W" else 1 if r == "D" else 0) * _weight(c)
+            for r, c in zip(res, comp)
+        )
+        return {
+            "win_rate":        res.count("W") / n,
+            "draw_rate":       res.count("D") / n,
+            "loss_rate":       res.count("L") / n,
+            "goals_scored":    sum(gf) / n,
+            "goals_conceded":  sum(ga) / n,
+            "gd":              (sum(gf) - sum(ga)) / n,
+            "clean_sheets":    sum(1 for g in ga if g == 0) / n,
+            "weighted_pts":    pts_w,
+        }
 
-    # Weighted points (3/1/0 × match_weight)
-    pts_w = sum(
-        (3 if r == "W" else 1 if r == "D" else 0) * _weight(c)
-        for r, c in zip(results10, comps10)
-    )
-
-    # Last 5
-    results5 = results10[:5]
-    comps5 = comps10[:5]
-    pts_w5 = sum(
-        (3 if r == "W" else 1 if r == "D" else 0) * _weight(c)
-        for r, c in zip(results5, comps5)
-    )
+    s5  = _stats(*_window(5))
+    s10 = _stats(*_window(10))
+    s15 = _stats(*_window(15))
+    s20 = _stats(*_window(20))
 
     return {
-        "win_rate_last10": wins / n,
-        "draw_rate_last10": draws / n,
-        "loss_rate_last10": losses / n,
-        "goals_scored_avg_last10": sum(gf10) / n,
-        "goals_conceded_avg_last10": sum(ga10) / n,
-        "gd_avg_last10": (sum(gf10) - sum(ga10)) / n,
-        "clean_sheet_rate_last10": sum(1 for g in ga10 if g == 0) / n,
-        "weighted_pts_last10": pts_w,
-        "win_rate_last5": results5.count("W") / min(5, n),
-        "weighted_pts_last5": pts_w5,
+        "win_rate_last5":          s5["win_rate"],
+        "weighted_pts_last5":      s5["weighted_pts"],
+        "win_rate_last10":         s10["win_rate"],
+        "draw_rate_last10":        s10["draw_rate"],
+        "loss_rate_last10":        s10["loss_rate"],
+        "goals_scored_avg_last10": s10["goals_scored"],
+        "goals_conceded_avg_last10": s10["goals_conceded"],
+        "gd_avg_last10":           s10["gd"],
+        "clean_sheet_rate_last10": s10["clean_sheets"],
+        "weighted_pts_last10":     s10["weighted_pts"],
+        "win_rate_last15":         s15["win_rate"],
+        "weighted_pts_last15":     s15["weighted_pts"],
+        "win_rate_last20":         s20["win_rate"],
+        "draw_rate_last20":        s20["draw_rate"],
+        "loss_rate_last20":        s20["loss_rate"],
+        "goals_scored_avg_last20": s20["goals_scored"],
+        "goals_conceded_avg_last20": s20["goals_conceded"],
+        "gd_avg_last20":           s20["gd"],
+        "clean_sheet_rate_last20": s20["clean_sheets"],
+        "weighted_pts_last20":     s20["weighted_pts"],
         "has_api_form": 1.0,
     }
 

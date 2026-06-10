@@ -1,3 +1,8 @@
+# DEPRECATED — superseded by scripts/backtest.py which covers WC 2014/2018/2022
+# and continental tournaments with bootstrap CI, SHAP, and calibration plots.
+# Use: python3.11 scripts/backtest.py --years 2022
+# This script uses the old DixonColesModel and CalibrationLayer APIs which no
+# longer match the active pipeline.
 """Evaluate model on WC 2022. Run: python3.11 scripts/evaluate_wc2022.py"""
 import warnings; warnings.filterwarnings("ignore")
 import time

@@ -21,9 +21,8 @@ _RANKING_NAME_MAP: dict[str, str] = {
     "South Korea": "Korea Republic",
     "United States": "USA",
     "DR Congo": "Congo DR",
-    "Ivory Coast": "Ivory Coast",       # matches as-is
-    "Bosnia and Herzegovina": "Bosnia & Herzegovina",
-    "Bosnia-Herzegovina": "Bosnia & Herzegovina",
+    "Ivory Coast": "Côte d'Ivoire",
+    "Bosnia-Herzegovina": "Bosnia and Herzegovina",
     "Curacao": "Curaçao",
     "Turkey": "Türkiye",
     "Czech Republic": "Czech Republic",  # matches as-is

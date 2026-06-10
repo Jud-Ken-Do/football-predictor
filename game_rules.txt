@@ -1,4 +1,4 @@
-Hi Everyone, as promised (though a bit late), here is the ruleset for the official Rotate 2026 World Cup prediction game. One thing has changed since last time though: you will now be predicting the GROUP STAGES ONLY. We will then run the same exact model to predict the final bracket once the group stage is finished (this is due to how FIFA rules have recently changed and allowed some of the 3rd best teams to make it through, making it extremely hard to get everyone's predictions through the end).
+here is the ruleset for the official Rotate 2026 World Cup prediction game. One thing has changed since last time though: you will now be predicting the GROUP STAGES ONLY. We will then run the same exact model to predict the final bracket once the group stage is finished (this is due to how FIFA rules have recently changed and allowed some of the 3rd best teams to make it through, making it extremely hard to get everyone's predictions through the end).
  
 The concept:
  
@@ -25,4 +25,3 @@ Drop your folder (team name as the name) in this location by 10 June. 
 Any questions → send us a DM.
  
 May the best win!
-The W.A.T.C.H

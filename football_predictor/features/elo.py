@@ -45,7 +45,7 @@ class EloFeatures(FeatureModule):
         r_home_raw = snap.get(home, self._DEFAULT_RATING)
         r_away_raw = snap.get(away, self._DEFAULT_RATING)
 
-        is_neutral = bool(match.get("neutral", True))
+        is_neutral = bool(match.get("neutral", False))
         ha = ELO_NEUTRAL_ADVANTAGE if is_neutral else ELO_HOME_ADVANTAGE
         r_home = r_home_raw + ha
 
@@ -93,8 +93,9 @@ class EloFeatures(FeatureModule):
                 s_h = 1.0 if hg > ag else (0.5 if hg == ag else 0.0)
                 s_a = 1.0 - s_h
 
-                ratings[home] = ratings.get(home, self._DEFAULT_RATING) + ELO_K_FACTOR * (s_h - exp_h)
-                ratings[away] = ratings.get(away, self._DEFAULT_RATING) + ELO_K_FACTOR * (s_a - (1.0 - exp_h))
+                mw = float(row.get("match_weight", 1.0))
+                ratings[home] = ratings.get(home, self._DEFAULT_RATING) + ELO_K_FACTOR * mw * (s_h - exp_h)
+                ratings[away] = ratings.get(away, self._DEFAULT_RATING) + ELO_K_FACTOR * mw * (s_a - (1.0 - exp_h))
 
         self._final = dict(ratings)
 

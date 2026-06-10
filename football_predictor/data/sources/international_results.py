@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import time
 from typing import Optional
 
 import pandas as pd
@@ -41,7 +42,12 @@ def fetch_international_results(
             tournament, city, country, neutral
         Sorted ascending by date.
     """
-    if use_cache and _CACHE_PATH.exists():
+    _CACHE_MAX_AGE_S = 48 * 3600
+    cache_stale = (
+        _CACHE_PATH.exists()
+        and (time.time() - _CACHE_PATH.stat().st_mtime) > _CACHE_MAX_AGE_S
+    )
+    if use_cache and _CACHE_PATH.exists() and not cache_stale:
         logger.info("Loading international results from cache.")
         df = pd.read_csv(_CACHE_PATH)
     else:
@@ -55,6 +61,16 @@ def fetch_international_results(
     df["date"] = pd.to_datetime(df["date"])
     df = df.rename(columns={"home_score": "home_goals", "away_score": "away_goals"})
     df = df.dropna(subset=["home_goals", "away_goals"])
+
+    # Normalise team names from martj42 CSV to WC 2026 canonical names
+    _NAME_MAP = {
+        "Cape Verde":     "Cabo Verde",
+        "Czech Republic": "Czechia",
+        "Iran":           "IR Iran",
+        "Turkey":         "Türkiye",
+    }
+    df["home_team"] = df["home_team"].replace(_NAME_MAP)
+    df["away_team"] = df["away_team"].replace(_NAME_MAP)
     df["home_goals"] = df["home_goals"].astype(int)
     df["away_goals"] = df["away_goals"].astype(int)
 

@@ -23,3 +23,6 @@ output/*.png
 
 # macOS
 .DS_Store
+
+# Other competition submissions (not our code)
+other_submissions/

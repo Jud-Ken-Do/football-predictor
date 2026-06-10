@@ -18,14 +18,24 @@ Used at PREDICTION TIME — causally correct, uses only past data.
 
 RTS BACKWARD SMOOTHER (Rauch-Tung-Striebel)
 ────────────────────────────────────────────
-Used for HISTORICAL TRAINING DATA — uses future matches to improve past estimates.
+Used for EM Q-tuning and optionally for training features (use_smoothed=True).
   Smoother gain:  G_t = P_upd[t] · P_pred[t+1]⁻¹
   Smoothed state: x̂_t = x_upd[t] + G_t · (x̂_{t+1} − x_pred[t+1])
   Smoothed cov:   P̂_t = P_upd[t] + G_t · (P̂_{t+1} − P_pred[t+1]) · G_t'
 
-  Benefit: Training features reflect the team's true latent strength with less lag
-  than the forward-only estimate, improving XGBoost signal quality.
-  At inference time, only forward snapshots are used (future data unavailable).
+EM Q-TUNING
+───────────
+When tune_q=True, runs EM iterations before building the feature cache:
+  M-step: q²_new = (1/2N) · Σ_t [ (||dx_s||² + tr(P_s[t+1]) + tr(P_s[t])
+                                    − 2·tr(G_t · P_s[t+1])) / Δt_t ]
+  where dx_s = x_smooth[t+1] − x_smooth[t] and the /2 accounts for 2D state.
+  Converges in ~5 iterations. Features then use the tuned Q with forward-only EKF.
+
+MODES
+─────
+  use_smoothed=False, tune_q=False  — forward-only (default, no covariate shift)
+  use_smoothed=True,  tune_q=False  — RTS-smoothed training features (original)
+  use_smoothed=False, tune_q=True   — EM-tuned Q, forward-only features (Option A)
 
 FEATURES FOR XGBoost (13 total)
 ────────────────────────────────
@@ -40,7 +50,7 @@ References:
     Kalman, R.E. (1960). Trans. ASME–J. Basic Eng., 82(D), 35–45.
     Rauch, H.E., Tung, F., & Striebel, C.T. (1965). AIAA Journal, 3(8), 1445–1450.
     Koopman, S.J. & Lit, R. (2015). JRSS-A, 178(1), 167–186.
-    Elvidge, S. (2025). seanelvidge.com/articles/2025/Football_team_rankings/
+    Shumway, R.H. & Stoffer, D.S. (1982). Ann. Stat., 10(2), 423–441.  [EM for SSM]
 """
 from __future__ import annotations
 
@@ -55,7 +65,7 @@ from football_predictor.features.base import FeatureModule
 # ── Hyperparameters ────────────────────────────────────────────────────────────
 _MU: float = math.log(1.3)       # baseline log-goals (≈ 1.3 goals/team/game)
 _HOME_ADV: float = 0.20           # log-scale home advantage (≈ +22% goals at home)
-_Q_PER_YEAR: float = 0.15         # process noise (how much att/def can drift per year)
+_Q_PER_YEAR: float = 0.15         # process noise default (tuned via EM when tune_q=True)
 _P0_DIAG: float = 0.16            # initial covariance diagonal (0.4² in log-goals units)
 _P_FLOOR: float = 1e-6            # minimum variance to prevent degeneracy
 _DAYS_PER_YEAR: float = 365.25
@@ -74,11 +84,16 @@ def _ekf_obs_update(
     lam: float,
     innovation: float,
     h_vec: np.ndarray,
+    match_weight: float = 1.0,
 ) -> None:
-    """In-place EKF observation update (Joseph form for numerical stability)."""
+    """In-place EKF observation update (Joseph form for numerical stability).
+
+    match_weight scales measurement trust: WC (1.5×) → lower R → larger Kalman gain.
+    Friendly (0.3×) → higher R → smaller gain. Equivalent to R = Poisson_var / weight.
+    """
     P = state["P"]
     PH = P @ h_vec
-    S = float(h_vec @ PH) + max(lam, 1e-4)
+    S = float(h_vec @ PH) + max(lam, 1e-4) / max(match_weight, 1e-3)
     K = PH / S
     state["x"] = state["x"] + K * innovation
     I_KH = np.eye(2) - np.outer(K, h_vec)
@@ -93,31 +108,29 @@ def _ekf_match_update(
     home_goals: int,
     away_goals: int,
     neutral: bool,
+    match_weight: float = 1.0,
 ) -> None:
     """EKF update for one full match (two sequential Poisson observations)."""
     ha = 0.0 if neutral else _HOME_ADV
 
-    # Observation 1: home goals → update att_h and def_a
     lam_h = max(math.exp(_MU + h_state["x"][0] + a_state["x"][1] + ha), 1e-4)
     inn_h = home_goals - lam_h
-    _ekf_obs_update(h_state, lam_h, inn_h, np.array([lam_h, 0.0]))
-    _ekf_obs_update(a_state, lam_h, inn_h, np.array([0.0, lam_h]))
+    _ekf_obs_update(h_state, lam_h, inn_h, np.array([lam_h, 0.0]), match_weight)
+    _ekf_obs_update(a_state, lam_h, inn_h, np.array([0.0, lam_h]), match_weight)
 
-    # Observation 2: away goals → update att_a and def_h
     lam_a = max(math.exp(_MU + a_state["x"][0] + h_state["x"][1]), 1e-4)
     inn_a = away_goals - lam_a
-    _ekf_obs_update(a_state, lam_a, inn_a, np.array([lam_a, 0.0]))
-    _ekf_obs_update(h_state, lam_a, inn_a, np.array([0.0, lam_a]))
+    _ekf_obs_update(a_state, lam_a, inn_a, np.array([lam_a, 0.0]), match_weight)
+    _ekf_obs_update(h_state, lam_a, inn_a, np.array([0.0, lam_a]), match_weight)
 
 
 def _run_rts(team_hist: dict[str, list[dict]]) -> None:
-    """In-place RTS backward smoother over each team's forward-pass history."""
+    """In-place RTS backward smoother. Stores smoother gain G for EM."""
     for team, hist in team_hist.items():
         n = len(hist)
         if n == 0:
             continue
 
-        # Initialise smoother at last time step
         hist[-1]["x_smooth"] = hist[-1]["x_upd"].copy()
         hist[-1]["P_smooth"] = hist[-1]["P_upd"].copy()
 
@@ -125,11 +138,12 @@ def _run_rts(team_hist: dict[str, list[dict]]) -> None:
             P_upd_i = hist[i]["P_upd"]
             P_pred_i1 = hist[i + 1]["P_pred"]
 
-            # Smoother gain G = P_upd[t] @ inv(P_pred[t+1])
             try:
                 G = P_upd_i @ np.linalg.solve(P_pred_i1.T, np.eye(2)).T
             except np.linalg.LinAlgError:
                 G = P_upd_i / (P_pred_i1 + 1e-8 * np.eye(2))
+
+            hist[i]["G"] = G  # stored for EM cross-covariance
 
             x_diff = hist[i + 1]["x_smooth"] - hist[i + 1]["x_pred"]
             P_diff = hist[i + 1]["P_smooth"] - P_pred_i1
@@ -141,15 +155,69 @@ def _run_rts(team_hist: dict[str, list[dict]]) -> None:
             hist[i]["P_smooth"] = P_s
 
 
+def _em_estimate_q(team_hist: dict[str, list[dict]]) -> float:
+    """EM M-step: ML estimate of process noise q from smoothed states.
+
+    Uses the Shumway-Stoffer (1982) update for isotropic random-walk Q:
+        q²_hat = (1 / 2N) · Σ_t [ (||dx_s||² + tr(P_s[t+1]) + tr(P_s[t])
+                                    − 2·tr(G_t · P_s[t+1])) / Δt_t ]
+    The /2 accounts for the 2D state dimension.
+    """
+    total = 0.0
+    n_transitions = 0
+
+    for hist in team_hist.values():
+        for i in range(len(hist) - 1):
+            dt = (hist[i + 1]["date"] - hist[i]["date"]).days / _DAYS_PER_YEAR
+            if dt <= 0:
+                continue
+            dx = hist[i + 1]["x_smooth"] - hist[i]["x_smooth"]
+            G = hist[i].get("G", np.zeros((2, 2)))
+            P_cross = G @ hist[i + 1]["P_smooth"]
+            innov = (
+                np.dot(dx, dx)
+                + np.trace(hist[i + 1]["P_smooth"])
+                + np.trace(hist[i]["P_smooth"])
+                - 2.0 * np.trace(P_cross)
+            )
+            total += innov / dt
+            n_transitions += 1
+
+    if n_transitions == 0:
+        return _Q_PER_YEAR
+    q_sq = total / (2.0 * n_transitions)
+    return float(math.sqrt(max(q_sq, 1e-6)))
+
+
 class KalmanStrengthFeatures(FeatureModule):
-    """EKF state-space model with RTS backward smoother for team strength."""
+    """EKF with optional RTS smoother and EM-tuned process noise."""
 
     name = "kalman_strength"
 
-    def __init__(self) -> None:
+    # Class-level cache so EM runs once per dataset even across multiple instances
+    # (build_feature_matrix creates fresh instances for train and test calls).
+    # Key: (id(data), len(data)) — safe within a session since the context
+    # DataFrame is never garbage-collected between the two build calls.
+    _EM_Q_CACHE: dict[tuple, float] = {}
+    _LAST_TUNED_Q: float = _Q_PER_YEAR  # updated after each EM run; read by BayesPoisson
+
+    @classmethod
+    def get_last_tuned_q(cls) -> float:
+        """Return the most recently EM-estimated process noise (q per year).
+
+        Used by BayesianPoissonModel to derive a half-life consistent with
+        the Kalman filter's learned assumption about team strength drift rate.
+        """
+        return cls._LAST_TUNED_Q
+
+    def __init__(self, use_smoothed: bool = False, tune_q: bool = True) -> None:
+        self._use_smoothed = use_smoothed
+        self._tune_q = tune_q
+        self._q_per_year: float = _Q_PER_YEAR
+        self._tuned: bool = False
         self._states: dict[str, dict] = {}
-        self._snapshots: dict[str, dict[str, dict]] = {}          # forward (prediction)
-        self._smoothed_snapshots: dict[str, dict[str, dict]] = {} # RTS (training)
+        self._snapshots: dict[str, dict[str, dict]] = {}
+        self._smoothed_snapshots: dict[str, dict[str, dict]] = {}
         self._data_id: Optional[int] = None
 
     # ── FeatureModule interface ────────────────────────────────────────────────
@@ -164,8 +232,7 @@ class KalmanStrengthFeatures(FeatureModule):
         home, away = match["home_team"], match["away_team"]
         is_neutral = bool(match.get("neutral", True))
 
-        # Smoothed snapshots for historical dates, forward for future
-        if date_str in self._smoothed_snapshots:
+        if self._use_smoothed and date_str in self._smoothed_snapshots:
             snap = self._smoothed_snapshots[date_str]
         else:
             snap = self._snapshots.get(date_str, self._states)
@@ -214,32 +281,38 @@ class KalmanStrengthFeatures(FeatureModule):
         if self._data_id == id(data):
             return
         self._data_id = id(data)
+        if self._tune_q and not self._tuned:
+            self._run_em(data)
+            self._tuned = True
         self._build_cache(data)
 
-    def _build_cache(self, data: pd.DataFrame) -> None:
-        df = data.copy()
-        df["date"] = pd.to_datetime(df["date"])
-        df = df.sort_values("date").reset_index(drop=True)
+    def _run_forward_pass(
+        self, df: pd.DataFrame, record_hist: bool
+    ) -> tuple[dict, dict, dict | None]:
+        """Forward EKF pass over a sorted date DataFrame.
 
-        states: dict[str, dict] = {}     # current (mutable) states
+        Args:
+            df:           Sorted match DataFrame (date as Timestamp).
+            record_hist:  If True, build team_hist for RTS/EM. If False, skip it.
+
+        Returns:
+            (final_states, snapshots, team_hist)  — team_hist is None if record_hist=False.
+        """
+        states: dict[str, dict] = {}
         last_date: dict[str, pd.Timestamp] = {}
-        self._snapshots = {}
-
-        # Per-team chronological history for RTS smoother
-        team_hist: dict[str, list[dict]] = {}
+        snapshots: dict[str, dict[str, dict]] = {}
+        team_hist: dict[str, list[dict]] | None = {} if record_hist else None
 
         for date, group in df.groupby("date", sort=True):
             date_str = str(date.date())
             all_teams = set(group["home_team"]) | set(group["away_team"])
 
-            # ── Snapshot BEFORE this date's matches (forward, pre-match) ───────
-            self._snapshots[date_str] = {
+            snapshots[date_str] = {
                 t: {"x": states[t]["x"].copy(), "P": states[t]["P"].copy()}
                 if t in states else _default_state()
                 for t in all_teams
             }
 
-            # ── Time update ONCE per team per date-batch ─────────────────────
             for team in all_teams:
                 if team not in states:
                     states[team] = _default_state()
@@ -247,42 +320,85 @@ class KalmanStrengthFeatures(FeatureModule):
 
                 dt_years = (date - last_date[team]).days / _DAYS_PER_YEAR
                 x_pred = states[team]["x"].copy()
-                P_pred = states[team]["P"] + (_Q_PER_YEAR ** 2) * dt_years * np.eye(2)
+                P_pred = states[team]["P"] + (self._q_per_year ** 2) * dt_years * np.eye(2)
                 states[team]["P"] = P_pred.copy()
                 last_date[team] = date
 
-                team_hist.setdefault(team, []).append({
-                    "date": date,
-                    "x_pred": x_pred,
-                    "P_pred": P_pred.copy(),
-                })
+                if record_hist:
+                    team_hist.setdefault(team, []).append({
+                        "date": date,
+                        "x_pred": x_pred,
+                        "P_pred": P_pred.copy(),
+                    })
 
-            # ── EKF observation updates ───────────────────────────────────────
             for _, row in group.iterrows():
                 _ekf_match_update(
                     states[row["home_team"]], states[row["away_team"]],
                     int(row["home_goals"]), int(row["away_goals"]),
                     bool(row.get("neutral", False)),
+                    float(row.get("match_weight", 1.0)),
                 )
 
-            # ── Record post-update states for RTS ────────────────────────────
-            for team in all_teams:
-                team_hist[team][-1]["x_upd"] = states[team]["x"].copy()
-                team_hist[team][-1]["P_upd"] = states[team]["P"].copy()
+            if record_hist:
+                for team in all_teams:
+                    team_hist[team][-1]["x_upd"] = states[team]["x"].copy()
+                    team_hist[team][-1]["P_upd"] = states[team]["P"].copy()
 
-        self._states = {
+        final_states = {
             t: {"x": s["x"].copy(), "P": s["P"].copy()} for t, s in states.items()
         }
+        return final_states, snapshots, team_hist
 
-        # ── RTS backward smoother ────────────────────────────────────────────
+    def _build_cache(self, data: pd.DataFrame) -> None:
+        df = data.copy()
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.sort_values("date").reset_index(drop=True)
+
+        self._states, self._snapshots, team_hist = self._run_forward_pass(
+            df, record_hist=self._use_smoothed
+        )
+
+        if self._use_smoothed and team_hist is not None:
+            _run_rts(team_hist)
+            self._build_smoothed_snapshots(team_hist)
+
+    def _build_with_rts(self, data: pd.DataFrame) -> dict:
+        """Forward EKF + RTS smoother. Returns team_hist for EM Q estimation.
+        Does not update self._snapshots or self._states."""
+        df = data.copy()
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.sort_values("date").reset_index(drop=True)
+
+        _, _, team_hist = self._run_forward_pass(df, record_hist=True)
         _run_rts(team_hist)
-        self._build_smoothed_snapshots(team_hist)
+        return team_hist
+
+    def _run_em(self, data: pd.DataFrame, max_iter: int = 10, tol: float = 1e-4) -> None:
+        """EM iterations to estimate Q. Updates self._q_per_year in-place.
+
+        Uses a class-level cache so EM runs at most once per unique dataset
+        even when multiple instances are created for the same context data.
+        """
+        cache_key = (id(data), len(data))
+        if cache_key in KalmanStrengthFeatures._EM_Q_CACHE:
+            self._q_per_year = KalmanStrengthFeatures._EM_Q_CACHE[cache_key]
+            return
+
+        for _ in range(max_iter):
+            q_old = self._q_per_year
+            team_hist = self._build_with_rts(data)
+            self._q_per_year = _em_estimate_q(team_hist)
+            if abs(self._q_per_year - q_old) < tol:
+                break
+
+        KalmanStrengthFeatures._EM_Q_CACHE[cache_key] = self._q_per_year
+        KalmanStrengthFeatures._LAST_TUNED_Q = self._q_per_year
+        print(f"  [Kalman EM] tuned Q: {self._q_per_year:.4f}/yr  (default: {_Q_PER_YEAR:.4f})")
 
     def _build_smoothed_snapshots(
         self, team_hist: dict[str, list[dict]]
     ) -> None:
         """Build RTS-smoothed pre-match snapshots for all historical dates."""
-        # Map each team to a sorted list of (date, x_smooth, P_smooth)
         smooth_tl: dict[str, list[tuple]] = {}
         for team, hist in team_hist.items():
             smooth_tl[team] = [
@@ -300,7 +416,6 @@ class KalmanStrengthFeatures(FeatureModule):
             s_snap: dict[str, dict] = {}
             for team in fwd_snap:
                 tl = smooth_tl.get(team, [])
-                # Find most recent entry strictly before target_date
                 lo, hi = 0, len(tl)
                 while lo < hi:
                     mid = (lo + hi) // 2

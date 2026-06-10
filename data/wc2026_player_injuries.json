@@ -1,0 +1,887 @@
+{
+  "Argentina": [
+    {
+      "player_id": 111873,
+      "slug": "emiliano-martinez",
+      "name": "Emiliano Martínez",
+      "position": "",
+      "market_value_m": 25.0,
+      "injuries": [
+        {
+          "from": "2026-04-11",
+          "until": "2026-04-15",
+          "days": 5,
+          "type": "Calf problems",
+          "games_missed": 1
+        },
+        {
+          "from": "2025-12-12",
+          "until": "2025-12-15",
+          "days": 4,
+          "type": "muscular problems",
+          "games_missed": 1
+        },
+        {
+          "from": "2025-12-02",
+          "until": "2025-12-04",
+          "days": 3,
+          "type": "muscular problems",
+          "games_missed": 1
+        },
+        {
+          "from": "2025-10-01",
+          "until": "2025-10-03",
+          "days": 3,
+          "type": "Knock",
+          "games_missed": 1
+        },
+        {
+          "from": "2025-09-15",
+          "until": "2025-09-26",
+          "days": 12,
+          "type": "Muscle injury",
+          "games_missed": 2
+        },
+        {
+          "from": "2025-03-07",
+          "until": "2025-03-09",
+          "days": 3,
+          "type": "unknown injury",
+          "games_missed": 1
+        },
+        {
+          "from": "2025-01-09",
+          "until": "2025-01-14",
+          "days": 6,
+          "type": "unknown injury",
+          "games_missed": 1
+        }
+      ]
+    },
+    {
+      "player_id": 296802,
+      "slug": "walter-benitez",
+      "name": "Walter Benítez",
+      "position": "",
+      "market_value_m": 12.0,
+      "injuries": []
+    },
+    {
+      "player_id": 229604,
+      "slug": "geronimo-rulli",
+      "name": "Gerónimo Rulli",
+      "position": "",
+      "market_value_m": 5.0,
+      "injuries": []
+    },
+    {
+      "player_id": 435001,
+      "slug": "facundo-cambeses",
+      "name": "Facundo Cambeses",
+      "position": "",
+      "market_value_m": 2.2,
+      "injuries": []
+    },
+    {
+      "player_id": 1296407,
+      "slug": "demian-talavera",
+      "name": "Demian Talavera",
+      "position": "",
+      "market_value_m": 0.0,
+      "injuries": []
+    },
+    {
+      "player_id": 355915,
+      "slug": "cristian-romero",
+      "name": "Cristian Romero",
+      "position": "",
+      "market_value_m": 65.0,
+      "injuries": [
+        {
+          "from": "2026-04-12",
+          "until": "2026-06-06",
+          "days": 56,
+          "type": "Knee injury",
+          "games_missed": 6
+        },
+        {
+          "from": "2025-10-19",
+          "until": "2025-10-31",
+          "days": 13,
+          "type": "Adductor injury",
+          "games_missed": 4
+        },
+        {
+          "from": "2024-12-08",
+          "until": "2025-03-03",
+          "days": 86,
+          "type": "Hamstring injury",
+          "games_missed": 20
+        },
+        {
+          "from": "2024-11-22",
+          "until": "2024-12-06",
+          "days": 15,
+          "type": "Toe injury",
+          "games_missed": 4
+        },
+        {
+          "from": "2024-11-03",
+          "until": "2024-11-08",
+          "days": 6,
+          "type": "Ankle injury",
+          "games_missed": 1
+        }
+      ]
+    },
+    {
+      "player_id": 474800,
+      "slug": "facundo-medina",
+      "name": "Facundo Medina",
+      "position": "",
+      "market_value_m": 25.0,
+      "injuries": [
+        {
+          "from": "2025-10-01",
+          "until": "2025-12-24",
+          "days": 85,
+          "type": "Ankle sprain",
+          "games_missed": 17
+        },
+        {
+          "from": "2025-08-19",
+          "until": "2025-09-01",
+          "days": 14,
+          "type": "Injury to the ankle",
+          "games_missed": 2
+        },
+        {
+          "from": "2024-12-09",
+          "until": "2024-12-13",
+          "days": 5,
+          "type": "Dead leg",
+          "games_missed": 0
+        }
+      ]
+    },
+    {
+      "player_id": 469781,
+      "slug": "marcos-senesi",
+      "name": "Marcos Senesi",
+      "position": "",
+      "market_value_m": 24.0,
+      "injuries": [
+        {
+          "from": "2024-11-30",
+          "until": "2025-04-01",
+          "days": 123,
+          "type": "Hamstring injury",
+          "games_missed": 21
+        },
+        {
+          "from": "2024-08-10",
+          "until": "2024-08-19",
+          "days": 10,
+          "type": "Facial injury",
+          "games_missed": 1
+        }
+      ]
+    },
+    {
+      "player_id": 575998,
+      "slug": "leonardo-balerdi",
+      "name": "Leonardo Balerdi",
+      "position": "",
+      "market_value_m": 20.0,
+      "injuries": [
+        {
+          "from": "2026-06-06",
+          "until": null,
+          "days": 4,
+          "type": "Calf injury",
+          "games_missed": 0
+        },
+        {
+          "from": "2026-03-13",
+          "until": "2026-03-20",
+          "days": 8,
+          "type": "muscular problems",
+          "games_missed": 1
+        },
+        {
+          "from": "2026-02-09",
+          "until": "2026-02-23",
+          "days": 15,
+          "type": "Head injury",
+          "games_missed": 2
+        },
+        {
+          "from": "2026-01-04",
+          "until": "2026-01-07",
+          "days": 4,
+          "type": "Ill",
+          "games_missed": 1
+        },
+        {
+          "from": "2025-10-28",
+          "until": "2025-11-09",
+          "days": 13,
+          "type": "Calf injury",
+          "games_missed": 4
+        },
+        {
+          "from": "2025-03-30",
+          "until": "2025-04-26",
+          "days": 28,
+          "type": "Knee injury",
+          "games_missed": 3
+        },
+        {
+          "from": "2024-08-26",
+          "until": "2024-09-13",
+          "days": 19,
+          "type": "Dead leg",
+          "games_missed": 3
+        }
+      ]
+    },
+    {
+      "player_id": 480763,
+      "slug": "juan-foyth",
+      "name": "Juan Foyth",
+      "position": "",
+      "market_value_m": 7.5,
+      "injuries": []
+    },
+    {
+      "player_id": 428920,
+      "slug": "kevin-mac-allister",
+      "name": "Kevin Mac Allister",
+      "position": "",
+      "market_value_m": 6.0,
+      "injuries": []
+    },
+    {
+      "player_id": 661136,
+      "slug": "kevin-lomonaco",
+      "name": "Kevin Lomónaco",
+      "position": "",
+      "market_value_m": 4.0,
+      "injuries": []
+    },
+    {
+      "player_id": 113133,
+      "slug": "german-pezzella",
+      "name": "Germán Pezzella",
+      "position": "",
+      "market_value_m": 2.7,
+      "injuries": []
+    },
+    {
+      "player_id": 54781,
+      "slug": "nicolas-otamendi",
+      "name": "Nicolás Otamendi",
+      "position": "",
+      "market_value_m": 1.0,
+      "injuries": []
+    },
+    {
+      "player_id": 1261395,
+      "slug": "lautaro-rivero",
+      "name": "Lautaro Rivero",
+      "position": "",
+      "market_value_m": 0.15,
+      "injuries": []
+    },
+    {
+      "player_id": 131225,
+      "slug": "nicolas-tagliafico",
+      "name": "Nicolás Tagliafico",
+      "position": "",
+      "market_value_m": 7.0,
+      "injuries": []
+    },
+    {
+      "player_id": 60410,
+      "slug": "marcos-acuna",
+      "name": "Marcos Acuña",
+      "position": "",
+      "market_value_m": 3.5,
+      "injuries": []
+    },
+    {
+      "player_id": 424042,
+      "slug": "nahuel-molina",
+      "name": "Nahuel Molina",
+      "position": "",
+      "market_value_m": 25.0,
+      "injuries": [
+        {
+          "from": "2024-11-18",
+          "until": "2024-12-06",
+          "days": 19,
+          "type": "Muscle injury",
+          "games_missed": 5
+        }
+      ]
+    },
+    {
+      "player_id": 402733,
+      "slug": "gonzalo-montiel",
+      "name": "Gonzalo Montiel",
+      "position": "",
+      "market_value_m": 5.0,
+      "injuries": []
+    },
+    {
+      "player_id": 756990,
+      "slug": "alan-varela",
+      "name": "Alan Varela",
+      "position": "",
+      "market_value_m": 35.0,
+      "injuries": [
+        {
+          "from": "2025-01-10",
+          "until": "2025-01-16",
+          "days": 7,
+          "type": "Muscle injury",
+          "games_missed": 0
+        }
+      ]
+    },
+    {
+      "player_id": 642758,
+      "slug": "anibal-moreno",
+      "name": "Aníbal Moreno",
+      "position": "",
+      "market_value_m": 11.0,
+      "injuries": []
+    },
+    {
+      "player_id": 668547,
+      "slug": "maximo-perrone",
+      "name": "Máximo Perrone",
+      "position": "",
+      "market_value_m": 9.0,
+      "injuries": []
+    },
+    {
+      "player_id": 671915,
+      "slug": "enzo-barrenechea",
+      "name": "Enzo Barrenechea",
+      "position": "",
+      "market_value_m": 7.5,
+      "injuries": []
+    },
+    {
+      "player_id": 166237,
+      "slug": "leandro-paredes",
+      "name": "Leandro Paredes",
+      "position": "",
+      "market_value_m": 5.0,
+      "injuries": []
+    },
+    {
+      "player_id": 534033,
+      "slug": "alexis-mac-allister",
+      "name": "Alexis Mac Allister",
+      "position": "",
+      "market_value_m": 80.0,
+      "injuries": [
+        {
+          "from": "2025-08-18",
+          "until": "2025-08-29",
+          "days": 12,
+          "type": "muscular problems",
+          "games_missed": 1
+        },
+        {
+          "from": "2025-05-12",
+          "until": "2025-07-29",
+          "days": 79,
+          "type": "Muscle injury",
+          "games_missed": 4
+        }
+      ]
+    },
+    {
+      "player_id": 648195,
+      "slug": "enzo-fernandez",
+      "name": "Enzo Fernández",
+      "position": "",
+      "market_value_m": 75.0,
+      "injuries": [
+        {
+          "from": "2025-11-09",
+          "until": "2025-11-21",
+          "days": 13,
+          "type": "Knee problems",
+          "games_missed": 1
+        },
+        {
+          "from": "2025-10-14",
+          "until": "2025-10-20",
+          "days": 7,
+          "type": "Knee problems",
+          "games_missed": 2
+        },
+        {
+          "from": "2025-01-16",
+          "until": "2025-01-23",
+          "days": 8,
+          "type": "Knock",
+          "games_missed": 1
+        },
+        {
+          "from": "2024-09-13",
+          "until": "2024-09-15",
+          "days": 3,
+          "type": "Ill",
+          "games_missed": 1
+        }
+      ]
+    },
+    {
+      "player_id": 401578,
+      "slug": "exequiel-palacios",
+      "name": "Exequiel Palacios",
+      "position": "",
+      "market_value_m": 40.0,
+      "injuries": [
+        {
+          "from": "2025-12-16",
+          "until": "2026-01-23",
+          "days": 39,
+          "type": "Fitness",
+          "games_missed": 4
+        },
+        {
+          "from": "2025-09-13",
+          "until": "2025-12-15",
+          "days": 94,
+          "type": "Adductor injury",
+          "games_missed": 22
+        },
+        {
+          "from": "2025-08-06",
+          "until": "2025-08-27",
+          "days": 22,
+          "type": "Muscle injury",
+          "games_missed": 2
+        },
+        {
+          "from": "2025-04-01",
+          "until": "2025-04-10",
+          "days": 10,
+          "type": "Groin problems",
+          "games_missed": 1
+        },
+        {
+          "from": "2024-09-05",
+          "until": "2024-09-16",
+          "days": 12,
+          "type": "Fitness",
+          "games_missed": 3
+        },
+        {
+          "from": "2024-08-05",
+          "until": "2024-09-05",
+          "days": 32,
+          "type": "Knee injury",
+          "games_missed": 4
+        }
+      ]
+    },
+    {
+      "player_id": 255901,
+      "slug": "rodrigo-de-paul",
+      "name": "Rodrigo De Paul",
+      "position": "",
+      "market_value_m": 25.0,
+      "injuries": [
+        {
+          "from": "2026-03-18",
+          "until": "2026-03-26",
+          "days": 9,
+          "type": "Torn muscle fiber",
+          "games_missed": 1
+        },
+        {
+          "from": "2026-03-13",
+          "until": "2026-03-17",
+          "days": 5,
+          "type": "Rest",
+          "games_missed": 1
+        }
+      ]
+    },
+    {
+      "player_id": 849410,
+      "slug": "valentin-barco",
+      "name": "Valentín Barco",
+      "position": "",
+      "market_value_m": 6.0,
+      "injuries": []
+    },
+    {
+      "player_id": 348795,
+      "slug": "giovani-lo-celso",
+      "name": "Giovani Lo Celso",
+      "position": "",
+      "market_value_m": 20.0,
+      "injuries": [
+        {
+          "from": "2026-01-17",
+          "until": "2026-04-05",
+          "days": 79,
+          "type": "Hamstring injury",
+          "games_missed": 17
+        },
+        {
+          "from": "2025-05-19",
+          "until": "2025-08-11",
+          "days": 85,
+          "type": "muscular problems",
+          "games_missed": 3
+        },
+        {
+          "from": "2025-02-16",
+          "until": "2025-03-25",
+          "days": 38,
+          "type": "Muscle injury",
+          "games_missed": 8
+        },
+        {
+          "from": "2025-01-12",
+          "until": "2025-02-01",
+          "days": 21,
+          "type": "Adductor injury",
+          "games_missed": 3
+        },
+        {
+          "from": "2024-10-17",
+          "until": "2024-11-18",
+          "days": 33,
+          "type": "Hamstring injury",
+          "games_missed": 6
+        }
+      ]
+    },
+    {
+      "player_id": 948294,
+      "slug": "nico-paz",
+      "name": "Nico Paz",
+      "position": "",
+      "market_value_m": 20.0,
+      "injuries": [
+        {
+          "from": "2026-05-25",
+          "until": null,
+          "days": 16,
+          "type": "Knee problems",
+          "games_missed": 1
+        },
+        {
+          "from": "2026-05-15",
+          "until": "2026-05-22",
+          "days": 8,
+          "type": "Bruised knee",
+          "games_missed": 1
+        }
+      ]
+    },
+    {
+      "player_id": 486031,
+      "slug": "nico-gonzalez",
+      "name": "Nico González",
+      "position": "",
+      "market_value_m": 35.0,
+      "injuries": [
+        {
+          "from": "2026-04-28",
+          "until": "2026-05-17",
+          "days": 20,
+          "type": "unknown injury",
+          "games_missed": 5
+        },
+        {
+          "from": "2026-02-16",
+          "until": "2026-03-02",
+          "days": 15,
+          "type": "Muscle injury",
+          "games_missed": 4
+        },
+        {
+          "from": "2025-12-21",
+          "until": "2026-01-19",
+          "days": 30,
+          "type": "Muscle injury",
+          "games_missed": 4
+        },
+        {
+          "from": "2024-10-02",
+          "until": "2024-12-13",
+          "days": 73,
+          "type": "muscular problems",
+          "games_missed": 17
+        }
+      ]
+    },
+    {
+      "player_id": 576028,
+      "slug": "thiago-almada",
+      "name": "Thiago Almada",
+      "position": "",
+      "market_value_m": 27.0,
+      "injuries": [
+        {
+          "from": "2025-09-11",
+          "until": "2025-10-11",
+          "days": 31,
+          "type": "Muscle injury",
+          "games_missed": 8
+        }
+      ]
+    },
+    {
+      "player_id": 321247,
+      "slug": "emiliano-buendia",
+      "name": "Emiliano Buendía",
+      "position": "",
+      "market_value_m": 18.0,
+      "injuries": []
+    },
+    {
+      "player_id": 961022,
+      "slug": "benja-dominguez",
+      "name": "Benja Domínguez",
+      "position": "",
+      "market_value_m": 6.0,
+      "injuries": []
+    },
+    {
+      "player_id": 28003,
+      "slug": "lionel-messi",
+      "name": "Lionel Messi",
+      "position": "",
+      "market_value_m": 20.0,
+      "injuries": [
+        {
+          "from": "2026-05-26",
+          "until": null,
+          "days": 15,
+          "type": "muscular problems",
+          "games_missed": 0
+        },
+        {
+          "from": "2026-03-13",
+          "until": "2026-03-16",
+          "days": 4,
+          "type": "Rest",
+          "games_missed": 1
+        },
+        {
+          "from": "2025-08-18",
+          "until": "2025-08-26",
+          "days": 9,
+          "type": "muscular problems",
+          "games_missed": 2
+        },
+        {
+          "from": "2025-08-04",
+          "until": "2025-08-14",
+          "days": 11,
+          "type": "muscular problems",
+          "games_missed": 2
+        },
+        {
+          "from": "2025-03-18",
+          "until": "2025-03-27",
+          "days": 10,
+          "type": "Adductor pain",
+          "games_missed": 2
+        },
+        {
+          "from": "2024-07-16",
+          "until": "2024-09-12",
+          "days": 59,
+          "type": "Ligament injury",
+          "games_missed": 10
+        }
+      ]
+    },
+    {
+      "player_id": 1057316,
+      "slug": "franco-mastantuono",
+      "name": "Franco Mastantuono",
+      "position": "",
+      "market_value_m": 15.0,
+      "injuries": []
+    },
+    {
+      "player_id": 742201,
+      "slug": "giuliano-simeone",
+      "name": "Giuliano Simeone",
+      "position": "",
+      "market_value_m": 12.0,
+      "injuries": []
+    },
+    {
+      "player_id": 1000674,
+      "slug": "gianluca-prestianni",
+      "name": "Gianluca Prestianni",
+      "position": "",
+      "market_value_m": 10.0,
+      "injuries": []
+    },
+    {
+      "player_id": 266807,
+      "slug": "angel-correa",
+      "name": "Ángel Correa",
+      "position": "",
+      "market_value_m": 15.0,
+      "injuries": []
+    },
+    {
+      "player_id": 406625,
+      "slug": "lautaro-martinez",
+      "name": "Lautaro Martínez",
+      "position": "",
+      "market_value_m": 100.0,
+      "injuries": [
+        {
+          "from": "2026-04-10",
+          "until": "2026-05-01",
+          "days": 22,
+          "type": "Muscle injury",
+          "games_missed": 2
+        },
+        {
+          "from": "2026-04-10",
+          "until": "2026-04-25",
+          "days": 16,
+          "type": "Calf problems",
+          "games_missed": 2
+        },
+        {
+          "from": "2026-02-19",
+          "until": "2026-04-01",
+          "days": 42,
+          "type": "Calf strain",
+          "games_missed": 9
+        },
+        {
+          "from": "2025-05-09",
+          "until": "2025-05-20",
+          "days": 12,
+          "type": "Muscle fatigue",
+          "games_missed": 2
+        },
+        {
+          "from": "2025-04-30",
+          "until": "2025-05-04",
+          "days": 5,
+          "type": "Hamstring injury",
+          "games_missed": 1
+        },
+        {
+          "from": "2025-03-19",
+          "until": "2025-04-03",
+          "days": 16,
+          "type": "Muscle injury",
+          "games_missed": 4
+        },
+        {
+          "from": "2024-11-22",
+          "until": "2024-11-25",
+          "days": 4,
+          "type": "Fever",
+          "games_missed": 1
+        },
+        {
+          "from": "2024-08-23",
+          "until": "2024-08-29",
+          "days": 7,
+          "type": "Muscle fatigue",
+          "games_missed": 1
+        }
+      ]
+    },
+    {
+      "player_id": 576024,
+      "slug": "julian-alvarez",
+      "name": "Julián Alvarez",
+      "position": "",
+      "market_value_m": 80.0,
+      "injuries": [
+        {
+          "from": "2026-05-06",
+          "until": "2026-05-31",
+          "days": 26,
+          "type": "Ankle sprain",
+          "games_missed": 4
+        },
+        {
+          "from": "2026-04-30",
+          "until": "2026-05-04",
+          "days": 5,
+          "type": "Ankle problems",
+          "games_missed": 1
+        },
+        {
+          "from": "2025-09-14",
+          "until": "2025-09-20",
+          "days": 7,
+          "type": "Inner ligament injury",
+          "games_missed": 1
+        }
+      ]
+    },
+    {
+      "player_id": 849520,
+      "slug": "santiago-castro",
+      "name": "Santiago Castro",
+      "position": "",
+      "market_value_m": 25.0,
+      "injuries": [
+        {
+          "from": "2026-01-21",
+          "until": "2026-01-24",
+          "days": 4,
+          "type": "flu",
+          "games_missed": 1
+        },
+        {
+          "from": "2025-03-25",
+          "until": "2025-04-03",
+          "days": 10,
+          "type": "Foot bruise",
+          "games_missed": 2
+        },
+        {
+          "from": "2025-03-24",
+          "until": "2025-03-27",
+          "days": 4,
+          "type": "Knock",
+          "games_missed": 0
+        }
+      ]
+    },
+    {
+      "player_id": 844797,
+      "slug": "jose-manuel-lopez",
+      "name": "José Manuel López",
+      "position": "",
+      "market_value_m": 9.0,
+      "injuries": []
+    },
+    {
+      "player_id": 1064871,
+      "slug": "joaquin-panichelli",
+      "name": "Joaquín Panichelli",
+      "position": "",
+      "market_value_m": 0.8,
+      "injuries": []
+    }
+  ]
+}

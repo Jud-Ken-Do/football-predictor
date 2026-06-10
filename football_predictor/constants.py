@@ -15,13 +15,23 @@ ELO_HOME_ADVANTAGE = 100                # Elo points added for home team (0 for 
 ELO_NEUTRAL_ADVANTAGE = 0              # no home advantage at World Cup
 PI_RATING_DECAY = 0.035                  # pi-rating per-game decay constant
 
-CONFEDERATION_STRENGTH = {              # relative Elo starting offsets by confederation
+CONFEDERATION_STRENGTH = {              # relative strength offsets by confederation
+    # Derived from cross-confederation H2H win rates vs Elo expected (2000–2026,
+    # competitive matches only). Mean-Elo approach discarded — CONCACAF/CONMEBOL
+    # inflate Elo through insular regional tournaments (Gold Cup / Copa América).
+    # True ordering from H2H evidence: CONMEBOL > UEFA > AFC > CAF > CONCACAF > OFC.
+    #
+    # Key findings that drove changes:
+    #   CONMEBOL beats everyone +7–17% over expected    → raise from 40 → 65
+    #   CONCACAF wins only 21.4% vs CAF (expected 66%)  → drop from 0 → -20
+    #   CAF beats AFC only 22.6% (expected 37.6%)       → AFC raised, CAF unchanged at 10
+    #   UEFA vs CONCACAF/CAF: ±1% gap → UEFA value confirmed
     "UEFA": 50,
-    "CONMEBOL": 40,
-    "CONCACAF": 0,
-    "AFC": -10,
-    "CAF": -10,
-    "OFC": -30,
+    "CONMEBOL": 65,
+    "CONCACAF": -20,
+    "AFC": 25,
+    "CAF": 10,
+    "OFC": -40,
 }
 
 WORLD_CUP_TOURNAMENTS = [
@@ -85,22 +95,31 @@ DEFAULT_FEATURE_MODULES = [
     "kalman_strength",  # EKF time-varying attack/defense + uncertainty (Koopman & Lit 2015)
     # ── Match history ─────────────────────────────────────────────────────────
     "form",             # rolling pts/goals/GD over 5/10/20 matches
+    "sos",              # strength of schedule: opponent-quality-adjusted win rate
     "h2h",              # head-to-head record
     "squad_strength",   # long-term attack/defence quality from intl results
     # ── Context / structure ───────────────────────────────────────────────────
     "confederation",    # UEFA/CONMEBOL/AFC/CAF/CONCACAF strength encoding
     "tournament_stage", # group stage vs knockout, pressure multiplier
-    # ── External data ─────────────────────────────────────────────────────────
+    # ── External data (historically available) ────────────────────────────────
     "rankings",         # FIFA world rankings points (Dato-Futbol, 1992–2024)
-    "squad_wc2026",     # WC 2026 club-tier / age features from official FIFA squad list
-    "api_form",         # last-10-match form from API-Football (pre-cached for WC 2026 teams)
-    "sofifa_ratings",   # EA FC 26 squad quality: overall, pace, shooting, passing, etc.
+    "odds",             # bookmaker closing odds (qualifier history; WC 2026 pre-match TBD)
+    "transfermarkt",    # squad market values from Transfermarkt.com (June 2026)
+    "xg_form",          # rolling xG / xGA — excel (UEFA/AFC/CONMEBOL) + FBref (CAF/CONCACAF)
+    # "xg",             # expected goals — requires StatsBomb/Opta event data
+]
+
+# WC-2026-specific modules that produce zeros for all historical training rows.
+# Excluded from DEFAULT_FEATURE_MODULES to prevent covariate shift: XGBoost
+# cannot learn a signal that is always 0 during training but non-zero at
+# prediction time.  Applied as post-processing adjustments instead — see
+# football_predictor/models/wc_context.py.
+WC_CONTEXT_MODULES = [
+    "squad_wc2026",    # WC 2026 club-tier / age features from official FIFA squad list
+    "api_form",        # last-10-match form from API-Football (pre-cached for WC 2026 teams)
+    "sofifa_ratings",  # EA FC 26 squad quality: overall, pace, shooting, passing, etc.
     "venue_wc2026",    # partial home advantage (MEX/USA/CAN), altitude, travel burden
     "injury",          # pre-match injuries/suspensions from API-Football cache
-    "odds",            # bookmaker closing odds (qualifier history; WC 2026 pre-match TBD)
-    "transfermarkt",   # squad market values from Transfermarkt.com (June 2026)
-    "xg_form",         # rolling xG / xGA — excel (UEFA/AFC/CONMEBOL) + FBref (CAF/CONCACAF)
-    # "xg",            # expected goals — requires StatsBomb/Opta event data
 ]
 
 # ── Data sources ───────────────────────────────────────────────────────────────

@@ -1,0 +1,243 @@
+"""Post-processing adjustments using WC-2026-specific context features.
+
+Player absence layer (new):
+  3. absence_adjust(p_h, p_d, p_a, home_team, away_team, wc_date) → adjusted probs
+     Reads data/wc2026_player_injuries.json to compute a star-player absence penalty.
+     For each team, scores absent players by (market_value_m / squad_total_mv) and
+     applies a log-odds shift proportional to the quality fraction unavailable.
+     Falls back silently if injury data is missing or incomplete.
+
+Applies signals from WC_CONTEXT_MODULES (squad_wc2026, api_form, sofifa_ratings,
+venue_wc2026, injury) that cannot be included in XGBoost training because they
+are zero for all historical rows (covariate shift).  Applied in two stages:
+
+  1. venue_adjust(lam_h, lam_a, ctx) → adjusted λ pair
+     Modifies BayesPoisson goal-rate estimates for partial home advantage
+     (MEX/USA/CAN in their own stadium) and altitude acclimatisation.
+
+  2. quality_nudge(p_h, p_d, p_a, ctx) → adjusted (p_h, p_d, p_a)
+     Small log-odds shift from sofifa overall rating diff and api_form
+     weighted points diff.  Keeps the draw probability proportional.
+"""
+from __future__ import annotations
+
+import json
+import math
+from pathlib import Path
+
+import pandas as pd
+
+_INJURY_FILE = Path(__file__).resolve().parents[2] / "data" / "wc2026_player_injuries.json"
+_ABSENCE_WEIGHT: float = 0.20   # max log-odds shift when a team's entire squad is absent
+_INJURY_ACTIVE_CUTOFF = "2026-06-11"  # tournament start — injuries must overlap with this
+
+# ── Tuning constants ──────────────────────────────────────────────────────────
+
+# Venue: how much partial home advantage (0–1 scale) maps to log-goal space.
+# BP home_adv ≈ 0.20 in log-goals; partial_adv of 0.30 → 6% lambda boost.
+_HOME_ADV_LOG: float = 0.20
+
+# Altitude: how much the module's altitude_adv value maps to log-goal space.
+_ALT_ADV_LOG: float = 0.15
+
+# Quality: weight on the combined quality diff (already normalised to ≈[-1,1]).
+# 0.12 means max quality gap shifts log-odds by ~0.12, probability by ~3pp.
+_QUALITY_W: float = 0.12
+
+# Sofifa normalisation: typical max diff in overall rating between WC teams.
+_SOFIFA_NORM: float = 20.0
+
+# api_form normalisation: max weighted pts diff per game across WC teams.
+_API_FORM_NORM: float = 1.5
+
+# Poisson sum cap for probability recompute
+_MAX_GOALS: int = 10
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _poisson_pmf(k: int, lam: float) -> float:
+    return math.exp(-lam) * (lam ** k) / math.factorial(k)
+
+
+def poisson_proba(lam_h: float, lam_a: float) -> tuple[float, float, float]:
+    """Recompute (p_home_win, p_draw, p_away_win) from Poisson goal rates."""
+    ph = pd_ = pa = 0.0
+    for h in range(_MAX_GOALS + 1):
+        for a in range(_MAX_GOALS + 1):
+            p = _poisson_pmf(h, lam_h) * _poisson_pmf(a, lam_a)
+            if h > a:
+                ph += p
+            elif h == a:
+                pd_ += p
+            else:
+                pa += p
+    total = max(ph + pd_ + pa, 1e-10)
+    return ph / total, pd_ / total, pa / total
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+def build_wc_context(
+    match_df: pd.DataFrame,
+    all_data: pd.DataFrame,
+) -> pd.DataFrame:
+    """Return a feature DataFrame (one row per match) from WC_CONTEXT_MODULES."""
+    from football_predictor.constants import WC_CONTEXT_MODULES
+    from football_predictor.data.pipeline import build_feature_matrix
+
+    ctx, _ = build_feature_matrix(match_df, WC_CONTEXT_MODULES, context=all_data)
+    return ctx
+
+
+def venue_adjust(
+    lam_h: float,
+    lam_a: float,
+    ctx: dict[str, float],
+) -> tuple[float, float]:
+    """Apply venue-level λ multipliers for partial home advantage and altitude."""
+    h_partial = ctx.get("venue_home_partial_adv", 0.0)
+    a_partial = ctx.get("venue_away_partial_adv", 0.0)
+    h_alt = ctx.get("venue_home_altitude_adv", 0.0)
+    a_alt = ctx.get("venue_away_altitude_adv", 0.0)
+
+    lam_h_adj = lam_h * math.exp(_HOME_ADV_LOG * h_partial + _ALT_ADV_LOG * h_alt)
+    lam_a_adj = lam_a * math.exp(_HOME_ADV_LOG * a_partial + _ALT_ADV_LOG * a_alt)
+    return lam_h_adj, lam_a_adj
+
+
+def quality_nudge(
+    p_h: float,
+    p_d: float,
+    p_a: float,
+    ctx: dict[str, float],
+) -> tuple[float, float, float]:
+    """Shift home/away win log-odds by a small sofifa + api_form quality signal.
+
+    Draw probability stays proportional to the home+away total.
+    """
+    sofifa_diff = ctx.get("sofifa_diff_overall", 0.0) / _SOFIFA_NORM
+    form_diff = ctx.get("api_form_diff_weighted_pts", 0.0) / _API_FORM_NORM
+    q = 0.5 * sofifa_diff + 0.5 * form_diff  # [-1, 1]
+
+    if abs(q) < 1e-6:
+        return p_h, p_d, p_a
+
+    logit = math.log((p_h + 1e-10) / (p_a + 1e-10)) + _QUALITY_W * q
+    ratio = math.exp(logit)
+    ha_sum = p_h + p_a
+    p_h_new = ratio / (1.0 + ratio) * ha_sum
+    p_a_new = 1.0 / (1.0 + ratio) * ha_sum
+
+    total = p_h_new + p_d + p_a_new
+    return p_h_new / total, p_d / total, p_a_new / total
+
+
+def _load_injury_db() -> dict:
+    """Load player injury history keyed by team name. Returns {} if file absent."""
+    if not _INJURY_FILE.exists():
+        return {}
+    try:
+        return json.loads(_INJURY_FILE.read_text())
+    except Exception:
+        return {}
+
+
+_INJURY_DB: dict = {}   # module-level cache, loaded once
+
+
+def _absent_quality_fraction(team: str) -> float:
+    """Fraction of squad market value currently injured/suspended at tournament start.
+
+    Returns a value in [0, 1]: 0 = fully available, 0.3 = 30% of squad value absent.
+    Falls back to 0.0 when data is unavailable (most teams at present).
+    """
+    global _INJURY_DB
+    if not _INJURY_DB:
+        _INJURY_DB = _load_injury_db()
+
+    players = _INJURY_DB.get(team, [])
+    if not players:
+        return 0.0
+
+    total_mv = sum(p.get("market_value_m", 0.0) for p in players)
+    if total_mv <= 0:
+        return 0.0
+
+    absent_mv = 0.0
+    for p in players:
+        for inj in p.get("injuries", []):
+            until = inj.get("until")
+            if until and until >= _INJURY_ACTIVE_CUTOFF:
+                absent_mv += p.get("market_value_m", 0.0)
+                break  # count each player at most once
+
+    return min(absent_mv / total_mv, 1.0)
+
+
+def absence_adjust(
+    p_h: float,
+    p_d: float,
+    p_a: float,
+    home_team: str,
+    away_team: str,
+) -> tuple[float, float, float]:
+    """Shift home/away log-odds by star player absence penalty.
+
+    Each team's unavailable quality fraction (absent market value / total) is
+    converted to a log-odds shift: full absence → −ABSENCE_WEIGHT, none → 0.
+    Draw probability stays proportional to the home+away total.
+    """
+    home_absent = _absent_quality_fraction(home_team)
+    away_absent = _absent_quality_fraction(away_team)
+    net_shift = _ABSENCE_WEIGHT * (away_absent - home_absent)  # positive → home advantage
+
+    if abs(net_shift) < 1e-6:
+        return p_h, p_d, p_a
+
+    logit = math.log((p_h + 1e-10) / (p_a + 1e-10)) + net_shift
+    ratio = math.exp(logit)
+    ha_sum = p_h + p_a
+    p_h_new = ratio / (1.0 + ratio) * ha_sum
+    p_a_new = 1.0 / (1.0 + ratio) * ha_sum
+
+    total = p_h_new + p_d + p_a_new
+    return p_h_new / total, p_d / total, p_a_new / total
+
+
+def apply_to_match(
+    lam_h: float,
+    lam_a: float,
+    ens_p_h: float,
+    ens_p_d: float,
+    ens_p_a: float,
+    ctx_row: dict[str, float],
+    apply_venue: bool = True,
+    home_team: str = "",
+    away_team: str = "",
+) -> tuple[float, float, float, float, float]:
+    """Full post-processing pipeline for one match.
+
+    Order: venue λ adjustment → quality nudge (sofifa+api_form) → player absence.
+    Returns (p_h, p_d, p_a, lam_h_adj, lam_a_adj).
+    """
+    if apply_venue:
+        lam_h_adj, lam_a_adj = venue_adjust(lam_h, lam_a, ctx_row)
+        bp_h, bp_d, bp_a = poisson_proba(lam_h_adj, lam_a_adj)
+        bp_h_orig, bp_d_orig, bp_a_orig = poisson_proba(lam_h, lam_a)
+
+        p_h = ens_p_h + (bp_h - bp_h_orig)
+        p_d = ens_p_d + (bp_d - bp_d_orig)
+        p_a = ens_p_a + (bp_a - bp_a_orig)
+        total = max(p_h + p_d + p_a, 1e-10)
+        p_h, p_d, p_a = p_h / total, p_d / total, p_a / total
+    else:
+        lam_h_adj, lam_a_adj = lam_h, lam_a
+        p_h, p_d, p_a = ens_p_h, ens_p_d, ens_p_a
+
+    p_h, p_d, p_a = quality_nudge(p_h, p_d, p_a, ctx_row)
+
+    if home_team and away_team:
+        p_h, p_d, p_a = absence_adjust(p_h, p_d, p_a, home_team, away_team)
+
+    return p_h, p_d, p_a, lam_h_adj, lam_a_adj

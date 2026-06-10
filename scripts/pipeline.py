@@ -14,7 +14,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
 import importlib
+import math
 import subprocess
 import sys
 import time
@@ -63,7 +65,7 @@ def _tick(t0: float) -> float:
 # ── Step 1: Fetch live data (optional) ────────────────────────────────────────
 
 _FETCHERS = [
-    ("API form (last 10 matches per team)",  "fetch_api_form.py",       ROOT / "data" / "api_form_cache.json"),
+    ("API form (last 20 matches per team)",  "fetch_api_form.py",       ROOT / "data" / "api_form_cache.json"),
     ("Transfermarkt squad values",           "fetch_transfermarkt.py",  ROOT / "data" / "transfermarkt_wc2026.json"),
     ("Squad injuries & suspensions",         "fetch_wc2026_injuries.py", ROOT / "data" / "injuries_cache.json"),
 ]
@@ -120,17 +122,21 @@ def step_load(from_year: int = 2010) -> tuple:
 
 def step_features(train_df, all_data) -> tuple:
     import pandas as pd
-    from football_predictor.data.pipeline import build_feature_matrix
+    from football_predictor.data.pipeline import build_feature_matrix, prune_correlated_features
     from football_predictor.constants import DEFAULT_FEATURE_MODULES
 
     t0 = time.time()
     X, y = build_feature_matrix(train_df, DEFAULT_FEATURE_MODULES, context=all_data)
+    n_raw = X.shape[1]
+    X, dropped = prune_correlated_features(X, threshold=0.95)
     sw = train_df["match_weight"].values
-    _ok(f"{X.shape[1]} features | {X.shape[0]:,} rows", _tick(t0))
+    prune_note = f" → {X.shape[1]} after pruning {len(dropped)} correlated" if dropped else ""
+    _ok(f"{n_raw} features{prune_note} | {X.shape[0]:,} rows", _tick(t0))
     return X, y, sw
 
 
-def step_train(X, y, sw, train_df, use_mcmc: bool, mcmc_draws: int, mcmc_tune: int) -> tuple:
+def step_train(X, y, sw, train_df, use_mcmc: bool, mcmc_draws: int, mcmc_tune: int,
+               tune_xgb: bool = False, tune_trials: int = 60) -> tuple:
     import pandas as pd
     from football_predictor.models.gradient_boost import GradientBoostModel
     from football_predictor.models.bayesian_poisson import BayesianPoissonModel
@@ -143,6 +149,12 @@ def step_train(X, y, sw, train_df, use_mcmc: bool, mcmc_draws: int, mcmc_tune: i
 
     t0 = time.time()
     xgb = GradientBoostModel()
+    if tune_xgb:
+        # Chronological train/val split reused as the tuning signal.
+        # Ideal would be WC-specific held-out splits; this is a practical approximation.
+        print(f"  [XGB] Tuning hyperparameters ({tune_trials} Optuna trials)...")
+        val_splits = [(X.iloc[:cut], y.iloc[:cut], sw[:cut], cal_X, cal_y)]
+        xgb.tune_hyperparameters(val_splits, n_trials=tune_trials)
     xgb.fit(X.iloc[:cut], y.iloc[:cut], sample_weight=sw[:cut])
     xgb_proba_cal = xgb.predict_proba(cal_X)
     temp_cal = TemperatureScaling()
@@ -150,7 +162,11 @@ def step_train(X, y, sw, train_df, use_mcmc: bool, mcmc_draws: int, mcmc_tune: i
     print(f"  XGB done  T={temp_cal.temperature:.3f} ({_tick(t0):.1f}s)")
 
     t1 = time.time()
-    bp = BayesianPoissonModel()
+    from football_predictor.features.kalman_strength import KalmanStrengthFeatures
+    q_tuned = KalmanStrengthFeatures.get_last_tuned_q()
+    hl = BayesianPoissonModel.half_life_from_q(q_tuned)
+    print(f"  BayesPoisson half-life: {hl}d  (derived from Kalman q={q_tuned:.4f}/yr)")
+    bp = BayesianPoissonModel(half_life_days=hl)
     if use_mcmc:
         print(f"  MCMC sampling ({mcmc_draws} draws + {mcmc_tune} tune) ...")
         bp.fit_mcmc(train_df.iloc[:cut], draws=mcmc_draws, tune=mcmc_tune)
@@ -169,16 +185,17 @@ def step_train(X, y, sw, train_df, use_mcmc: bool, mcmc_draws: int, mcmc_tune: i
 
     bp_proba_cal = _bp_proba(train_df.iloc[cut:])
     ensemble = EnsembleModel()
-    ensemble.fit(xgb_proba_cal, bp_proba_cal, cal_y)
-    print(f"  Ensemble  α={ensemble.xgb_weight:.2f} XGB + {ensemble.bp_weight:.2f} BP")
+    ensemble.fit(xgb_proba_cal, bp_proba_cal, cal_y, context_X=cal_X)
+    print(f"  Ensemble  ᾱ={ensemble.xgb_weight:.2f} XGB + {ensemble.bp_weight:.2f} BP (context-adaptive)")
 
-    # Refit BP on full data now ensemble weight is locked
+    # Refit BP on full data now ensemble weight is locked; then estimate DC ρ
     t2 = time.time()
     if use_mcmc:
         bp.fit_mcmc(train_df, draws=mcmc_draws, tune=mcmc_tune)
     else:
         bp.fit(train_df)
-    print(f"  BP refit on full data ({_tick(t2):.1f}s)")
+    bp.fit_rho(train_df)
+    print(f"  BP refit + DC ρ estimated ({_tick(t2):.1f}s)")
 
     return xgb, temp_cal, bp, ensemble, _bp_proba
 
@@ -199,10 +216,13 @@ def step_predict(xgb, temp_cal, bp, ensemble, all_data, train_df, _bp_proba_fn) 
         for f in fixtures:
             f["date"] = "2026-06-15"
 
+    from football_predictor.models.wc_context import build_wc_context, apply_to_match
+
     match_df = pd.DataFrame(fixtures)
     t0 = time.time()
     X_gs, _ = build_feature_matrix(match_df, DEFAULT_FEATURE_MODULES, context=all_data)
     xgb_proba = temp_cal.transform(xgb.predict_proba(X_gs))
+    ctx_gs = build_wc_context(match_df, all_data)
 
     results = []
     for i, f in enumerate(fixtures):
@@ -210,15 +230,23 @@ def step_predict(xgb, temp_cal, bp, ensemble, all_data, train_df, _bp_proba_fn) 
         bp_p = bp.predict_proba(normalise(home), normalise(away), neutral=True)
         bp_row = pd.DataFrame([bp_p], columns=["home_win", "draw", "away_win"])
         xgb_row = xgb_proba.iloc[[i]].reset_index(drop=True)
-        ens = ensemble.predict_proba(xgb_row, bp_row)
+        ens = ensemble.predict_proba(xgb_row, bp_row, context_X=X_gs.iloc[[i]].reset_index(drop=True))
         lam_h, lam_a = bp.get_lambdas(normalise(home), normalise(away), neutral=True)
+        ctx_row = ctx_gs.iloc[i].to_dict() if i < len(ctx_gs) else {}
+        p_h, p_d, p_a, lam_h_adj, lam_a_adj = apply_to_match(
+            lam_h, lam_a,
+            float(ens["home_win"].iloc[0]),
+            float(ens["draw"].iloc[0]),
+            float(ens["away_win"].iloc[0]),
+            ctx_row,
+            apply_venue=True,
+            home_team=home,
+            away_team=away,
+        )
         results.append({
             **f,
-            "p_home": float(ens["home_win"].iloc[0]),
-            "p_draw": float(ens["draw"].iloc[0]),
-            "p_away": float(ens["away_win"].iloc[0]),
-            "bp_lam_home": lam_h,
-            "bp_lam_away": lam_a,
+            "p_home": p_h, "p_draw": p_d, "p_away": p_a,
+            "bp_lam_home": lam_h_adj, "bp_lam_away": lam_a_adj,
         })
     _ok(f"72 group stage matches predicted", _tick(t0))
     return results
@@ -240,21 +268,26 @@ def step_simulate(match_data: list[dict], n_sims: int, xgb, temp_cal, bp, ensemb
          "match_weight": 1.5, "home_goals": 0, "away_goals": 0}
         for h in all_teams for a in all_teams if h != a
     ]
+    from football_predictor.models.wc_context import build_wc_context, quality_nudge
+
     pair_df = pd.DataFrame(pair_rows)
     X_pairs, _ = build_feature_matrix(pair_df, DEFAULT_FEATURE_MODULES, context=all_data)
+    ctx_pairs = build_wc_context(pair_df, all_data)
     xgb_pairs = temp_cal.transform(xgb.predict_proba(X_pairs))
     bp_pairs = pd.DataFrame(
         [bp.predict_proba(normalise(r["home_team"]), normalise(r["away_team"]), neutral=True)
          for _, r in pair_df.iterrows()],
         columns=["home_win", "draw", "away_win"],
     )
-    ens_pairs = ensemble.predict_proba(xgb_pairs.reset_index(drop=True), bp_pairs)
+    ens_pairs = ensemble.predict_proba(xgb_pairs.reset_index(drop=True), bp_pairs, context_X=X_pairs.reset_index(drop=True))
     prob_cache: dict[tuple, tuple] = {}
     for i, row in pair_df.iterrows():
         p = ens_pairs.iloc[i]
-        prob_cache[(row["home_team"], row["away_team"])] = (
-            float(p["home_win"]), float(p["draw"]), float(p["away_win"])
+        ctx_row = ctx_pairs.iloc[i].to_dict() if i < len(ctx_pairs) else {}
+        p_h, p_d, p_a = quality_nudge(
+            float(p["home_win"]), float(p["draw"]), float(p["away_win"]), ctx_row
         )
+        prob_cache[(row["home_team"], row["away_team"])] = (p_h, p_d, p_a)
     _ok(f"{len(prob_cache):,} pair probabilities pre-computed", _tick(t0))
 
     # Monte Carlo
@@ -299,6 +332,78 @@ def step_backtest(years: list[int]) -> None:
 
 # ── Output ─────────────────────────────────────────────────────────────────────
 
+def _save_raw_predictions(match_data: list[dict]) -> Path:
+    """Write output/output_raw.csv — most-likely score from Poisson λ, no points optimisation.
+
+    score1/score2 = floor(bp_lam_home/away), the mode of each team's goal distribution.
+    Also includes win/draw/loss probabilities for reference.
+    """
+    template_path = ROOT / "output_template 1.csv"
+    with open(template_path, newline="") as f:
+        template_rows = {
+            int(r["match_id"]): r
+            for r in csv.DictReader(f)
+        }
+
+    _TEMPLATE_TO_SCHEDULE = {
+        "Turkiye":    "Türkiye",
+        "Cape Verde": "Cabo Verde",
+        "Iran":       "IR Iran",
+        "Curacao":    "Curaçao",
+    }
+
+    lookup: dict[frozenset, dict] = {
+        frozenset([m["home_team"], m["away_team"]]): m
+        for m in match_data
+    }
+
+    rows = []
+    for mid, tr in sorted(template_rows.items()):
+        t1 = _TEMPLATE_TO_SCHEDULE.get(tr["team1"], tr["team1"])
+        t2 = _TEMPLATE_TO_SCHEDULE.get(tr["team2"], tr["team2"])
+        key = frozenset([t1, t2])
+        m = lookup.get(key)
+        if m is None:
+            rows.append({
+                "match_id": mid, "group": tr["group"],
+                "team1": tr["team1"], "team2": tr["team2"],
+                "score1": "", "score2": "",
+                "p_home": "", "p_draw": "", "p_away": "",
+                "lam_home": "", "lam_away": "",
+            })
+            continue
+
+        lam_h = m.get("bp_lam_home", 1.0)
+        lam_a = m.get("bp_lam_away", 1.0)
+        s_h = math.floor(lam_h)
+        s_a = math.floor(lam_a)
+        s1, s2 = (s_h, s_a) if m["home_team"] == t1 else (s_a, s_h)
+        p_h, p_d, p_a = m["p_home"], m["p_draw"], m["p_away"]
+        if m["home_team"] != t1:
+            p_h, p_a = p_a, p_h
+
+        rows.append({
+            "match_id": mid, "group": tr["group"],
+            "team1": tr["team1"], "team2": tr["team2"],
+            "score1": s1, "score2": s2,
+            "p_home": f"{p_h:.3f}", "p_draw": f"{p_d:.3f}", "p_away": f"{p_a:.3f}",
+            "lam_home": f"{lam_h:.3f}", "lam_away": f"{lam_a:.3f}",
+        })
+
+    out_path = OUTPUT_DIR / "output_raw.csv"
+    with open(out_path, "w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=["match_id", "group", "team1", "team2",
+                        "score1", "score2", "p_home", "p_draw", "p_away",
+                        "lam_home", "lam_away"],
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+    return out_path
+
+
 def _save_output(match_data, cum_counts, n_sims) -> Path:
     import io
     old_stdout = sys.stdout
@@ -333,12 +438,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--fetch",    action="store_true", help="Re-fetch live data (API form, TM, injuries)")
     p.add_argument("--no-fetch", action="store_true", help="Skip fetch step entirely")
     p.add_argument("--sims",     type=int, default=50_000)
-    p.add_argument("--backtest", action="store_true", help="Also run WC 2018/2022 backtest after predictions")
+    p.add_argument("--backtest", action="store_true", help="Also run WC 2014/2018/2022 backtest after predictions")
     p.add_argument("--match",    type=str, default=None, help="Single match card, e.g. 'Brazil vs Morocco'")
     p.add_argument("--mcmc",     action="store_true", help="Use MCMC posterior for BayesPoisson (~5 min extra)")
     p.add_argument("--mcmc-draws", type=int, default=500)
     p.add_argument("--mcmc-tune",  type=int, default=250)
     p.add_argument("--from-year",  type=int, default=2010, help="Earliest year of training data")
+    p.add_argument("--tune",     action="store_true",
+                   help="Tune XGBoost hyperparameters via Optuna before training (requires: pip install optuna)")
+    p.add_argument("--tune-trials", type=int, default=60, help="Number of Optuna trials (default 60)")
     return p.parse_args()
 
 
@@ -378,7 +486,8 @@ def main() -> None:
     print(f"{'─'*_W}")
     _step(1, 1, "TRAIN", "XGBoost + BayesPoisson + ensemble calibration...")
     xgb, temp_cal, bp, ensemble, _bp_proba_fn = step_train(
-        X, y, sw, train_df, args.mcmc, args.mcmc_draws, args.mcmc_tune
+        X, y, sw, train_df, args.mcmc, args.mcmc_draws, args.mcmc_tune,
+        tune_xgb=args.tune, tune_trials=args.tune_trials,
     )
 
     # ── SINGLE MATCH ───────────────────────────────────────────────────────────
@@ -418,13 +527,15 @@ def main() -> None:
     print(f"{'─'*_W}")
     out_path = _save_output(match_data, cum_counts, args.sims)
     _ok(f"Saved → {out_path.name}")
+    raw_path = _save_raw_predictions(match_data)
+    _ok(f"Saved → {raw_path.name}  (raw Poisson scores, no optimisation)")
 
     # ── BACKTEST ───────────────────────────────────────────────────────────────
     if args.backtest:
         print(f"\n{'─'*_W}")
-        print("  STEP 8 — BACKTEST (WC 2018 + 2022)")
+        print("  STEP 8 — BACKTEST (WC 2014 + 2018 + 2022)")
         print(f"{'─'*_W}")
-        step_backtest([2018, 2022])
+        step_backtest([2014, 2018, 2022])
 
     # ── DONE ───────────────────────────────────────────────────────────────────
     elapsed = _tick(t_total)

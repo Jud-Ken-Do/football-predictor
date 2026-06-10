@@ -41,10 +41,11 @@ def _e(mu: float, mu_j: float, phi_j: float) -> float:
     return 1.0 / (1.0 + math.exp(-_g(phi_j) * (mu - mu_j)))
 
 
-def _update(state: dict[str, float], results: list[tuple[float, float, float]]) -> dict[str, float]:
+def _update(state: dict[str, float], results: list[tuple[float, float, float, float]]) -> dict[str, float]:
     """One Glicko-2 update after a batch of results.
 
-    results: list of (opponent_mu, opponent_phi, score) where score ∈ {0, 0.5, 1}.
+    results: list of (opponent_mu, opponent_phi, score, match_weight).
+    Weight scales information contribution: WC (1.5×) → larger update; friendly (0.3×) → smaller.
     """
     mu, phi, sigma = state["mu"], state["phi"], state["sigma"]
 
@@ -52,10 +53,10 @@ def _update(state: dict[str, float], results: list[tuple[float, float, float]]) 
         # Inactive period: φ grows by volatility (uncertainty increases)
         return {"mu": mu, "phi": math.sqrt(phi * phi + sigma * sigma), "sigma": sigma}
 
-    v_inv = sum(_g(pj) ** 2 * _e(mu, mj, pj) * (1.0 - _e(mu, mj, pj)) for mj, pj, _ in results)
+    v_inv = sum(w * _g(pj) ** 2 * _e(mu, mj, pj) * (1.0 - _e(mu, mj, pj)) for mj, pj, _, w in results)
     v = 1.0 / max(v_inv, 1e-10)
 
-    delta = v * sum(_g(pj) * (s - _e(mu, mj, pj)) for mj, pj, s in results)
+    delta = v * sum(w * _g(pj) * (s - _e(mu, mj, pj)) for mj, pj, s, w in results)
 
     # Illinois algorithm to update σ (Glickman 2006 implementation note)
     a = math.log(sigma * sigma)
@@ -86,7 +87,7 @@ def _update(state: dict[str, float], results: list[tuple[float, float, float]]) 
     sigma_new = math.exp(A / 2.0)
     phi_star = math.sqrt(phi * phi + sigma_new * sigma_new)
     phi_new = 1.0 / math.sqrt(1.0 / (phi_star * phi_star) + 1.0 / v)
-    mu_new = mu + phi_new * phi_new * sum(_g(pj) * (s - _e(mu, mj, pj)) for mj, pj, s in results)
+    mu_new = mu + phi_new * phi_new * sum(w * _g(pj) * (s - _e(mu, mj, pj)) for mj, pj, s, w in results)
 
     return {"mu": mu_new, "phi": phi_new, "sigma": sigma_new}
 
@@ -158,12 +159,13 @@ class Glicko2Features(FeatureModule):
                 h, a = row["home_team"], row["away_team"]
                 hg, ag = float(row["home_goals"]), float(row["away_goals"])
                 s_h = 1.0 if hg > ag else (0.5 if hg == ag else 0.0)
+                mw = float(row.get("match_weight", 1.0))
 
                 h_state = ratings.get(h, _default_state())
                 a_state = ratings.get(a, _default_state())
 
-                team_results.setdefault(h, []).append((a_state["mu"], a_state["phi"], s_h))
-                team_results.setdefault(a, []).append((h_state["mu"], h_state["phi"], 1.0 - s_h))
+                team_results.setdefault(h, []).append((a_state["mu"], a_state["phi"], s_h, mw))
+                team_results.setdefault(a, []).append((h_state["mu"], h_state["phi"], 1.0 - s_h, mw))
 
             for team, res in team_results.items():
                 ratings[team] = _update(ratings.get(team, _default_state()), res)

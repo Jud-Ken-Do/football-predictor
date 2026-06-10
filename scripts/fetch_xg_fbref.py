@@ -1,4 +1,8 @@
 #!/usr/bin/env python3.11
+# DEPRECATED — FBref is Cloudflare-blocked as of June 2026; automated scraping
+# no longer works. CAF/CONCACAF xG remains a known data gap. If FBref CSV files
+# are manually downloaded, drop them into data/xg_fbref.json and xg_form.py will
+# pick them up automatically as a fallback source.
 """Scrape xG data from FBref for WC 2026 qualifying matches.
 
 Targets the two confederations missing from WorldCup2026.xlsx:
