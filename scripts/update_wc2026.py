@@ -1,12 +1,12 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """Record actual WC 2026 results and refresh remaining tournament odds.
 
 Usage — record a result:
-    python3.11 scripts/update_wc2026.py --result "Mexico vs South Africa" --score "2-1"
-    python3.11 scripts/update_wc2026.py --result "France vs Uruguay" --score "3-0" --group A
+    python3 scripts/update_wc2026.py --result "Mexico vs South Africa" --score "2-1"
+    python3 scripts/update_wc2026.py --result "France vs Uruguay" --score "3-0" --group A
 
 Usage — just refresh predictions with already-recorded results:
-    python3.11 scripts/update_wc2026.py --refresh
+    python3 scripts/update_wc2026.py --refresh
 
 How it works:
   1. Appends the result to data/wc2026_actual_results.json
@@ -109,7 +109,7 @@ def cmd_record(args: argparse.Namespace) -> None:
     print(f"\n  Recorded: {home} {hg}-{ag} {away}  ({result_str})")
     print(f"  Saved to: {RESULTS_FILE}")
     print(f"  Total results on file: {len(results)}")
-    print(f"\n  Run 'python3.11 scripts/predict_wc2026.py' to refresh predictions.")
+    print(f"\n  Run 'python3 scripts/predict_wc2026.py' to refresh predictions.")
 
 
 def cmd_list(args: argparse.Namespace) -> None:

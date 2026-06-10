@@ -207,8 +207,9 @@ The 2026 World Cup (USA/Canada/Mexico) introduces a new format: 48 teams in 12 g
 32. ✅ Monte Carlo λ resampling — Kalman posterior uncertainty (√P diagonal) propagates to lognormal λ resampling per simulation draw
 33. ✅ Confederation calibration — `scripts/calibrate_confederations.py`; offsets updated from H2H win-rate gaps (CONMEBOL=65 > UEFA=50 > AFC=25 > CAF=10 > CONCACAF=−20)
 34. ✅ Correlation pruning — `prune_correlated_features(threshold=0.95)` in `pipeline.py`; removes near-duplicate features before XGBoost training
-35. ✅ Optuna hyperparameter tuning — `GradientBoostModel.tune_hyperparameters()` with TPE sampler, 60 trials; `--tune` flag in pipeline
-36. ⬜ GNN model — `models/gnn.py` (HIGFormer-style, requires Wyscout/StatsBomb event-level data)
+35. ✅ Optuna hyperparameter tuning — `GradientBoostModel.tune_hyperparameters()` with TPE sampler, 60 trials; WC 2018/2022 group stage as val folds (not generic 80/20); auto-tunes on first `pipeline.py` run, cached to `data/xgb_tuned_params.json`; `--tune` to force re-tune
+36. ✅ Friendly weight auto-tuning — grid search [0.05…1.0] over WC 2018/2022 backtests; auto-tunes on first `pipeline.py` run, cached to `data/tuned_params.json`; `--retune` to force re-tune; both cache files auto-loaded by `generate_submission.py`
+37. ⬜ GNN model — `models/gnn.py` (HIGFormer-style, requires Wyscout/StatsBomb event-level data)
 
 ---
 

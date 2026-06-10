@@ -91,25 +91,24 @@ def fetch_world_cup_matches(use_cache: bool = True) -> pd.DataFrame:
     )
 
 
-def fetch_training_data(from_year: int = 2014, use_cache: bool = True) -> pd.DataFrame:
+def fetch_training_data(from_year: int = 2014, use_cache: bool = True, friendly_weight: float = 0.7) -> pd.DataFrame:
     """Return all international matches for model training, with match-type weights.
 
     Includes everything: WC, qualifiers, continental tournaments, and friendlies.
-    Friendlies are included but down-weighted (0.3×) since squads are rotated
-    and outcomes are less contested. Competitive matches get 1.0× weight.
-    The weight column is used by Dixon-Coles and can be passed to XGBoost
-    sample_weight during training.
+    Friendlies are included but down-weighted since squads are rotated and outcomes
+    are less contested. The friendly_weight parameter controls how much — 0.7 chosen
+    by grid search over WC 2018/2022 backtests.
 
-    Match type weights (based on signal strength in literature):
-        Friendly:                  0.3
+    Match type weights:
+        Friendly:                  friendly_weight (tunable, default 0.7)
         Arab Cup / minor:          0.6
         Nations League / Gold Cup: 0.7
-        AFCON / Asian Cup:         0.85 (major continental, but weaker field than WC)
+        AFCON / Asian Cup:         0.92
         Major qualifier:           1.0
-        World Cup:                 1.5  (extra signal — highest stakes)
+        World Cup:                 1.5
     """
     df = fetch_international_results(from_year=from_year, use_cache=use_cache)
-    df["match_weight"] = df["tournament"].apply(_match_weight)
+    df["match_weight"] = df["tournament"].apply(lambda t: _match_weight(t, friendly_weight))
 
     # Remove awarded results — scorelines decided off the pitch carry no form signal.
     # Known case: AFCON 2025 final Morocco 3-0 Senegal (awd.) — Senegal fielded
@@ -125,10 +124,10 @@ def fetch_training_data(from_year: int = 2014, use_cache: bool = True) -> pd.Dat
     return df.reset_index(drop=True)
 
 
-def _match_weight(tournament: str) -> float:
+def _match_weight(tournament: str, friendly_weight: float = 0.3) -> float:
     t = tournament.lower()
     if "friendly" in t:
-        return 0.3
+        return friendly_weight
     if "world cup" in t and "qualif" not in t:
         return 1.5
     if any(k in t for k in ["arab cup", "cosafa", "cecafa", "wafu", "aff", "uncaf"]):

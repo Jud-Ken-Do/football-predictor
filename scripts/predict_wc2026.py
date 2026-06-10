@@ -137,7 +137,7 @@ def train_model(
 ) -> tuple:
     if not quiet:
         print("Loading historical data...")
-    all_data = fetch_training_data(from_year=2010)
+    all_data = fetch_training_data(from_year=2010, friendly_weight=0.7)
 
     # Append actual WC 2026 results so Kalman EKF and BayesPoisson see them
     # Only WC group stage matches (group A–L) — friendlies or warmups are excluded

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import pathlib
 from typing import Optional
@@ -8,6 +9,9 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBClassifier
 from sklearn.model_selection import cross_val_score
+
+_ROOT = pathlib.Path(__file__).resolve().parents[2]
+_TUNED_PARAMS_PATH = _ROOT / "data" / "xgb_tuned_params.json"
 
 _DEFAULT_PARAMS = {
     "n_estimators": 500,
@@ -33,21 +37,16 @@ class GradientBoostModel:
 
     OUTCOME_LABELS = ["home_win", "draw", "away_win"]
 
-    def __init__(
-        self,
-        n_estimators: int = _DEFAULT_PARAMS["n_estimators"],
-        max_depth: int = _DEFAULT_PARAMS["max_depth"],
-        learning_rate: float = _DEFAULT_PARAMS["learning_rate"],
-        subsample: float = _DEFAULT_PARAMS["subsample"],
-        colsample_bytree: float = _DEFAULT_PARAMS["colsample_bytree"],
-        random_state: int = 42,
-    ):
+    def __init__(self, random_state: int = 42):
+        params = _DEFAULT_PARAMS.copy()
+        if _TUNED_PARAMS_PATH.exists():
+            try:
+                params = json.loads(_TUNED_PARAMS_PATH.read_text())
+                print(f"  [XGB] Loaded tuned params from {_TUNED_PARAMS_PATH.name}")
+            except Exception:
+                pass
         self.model = XGBClassifier(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
-            learning_rate=learning_rate,
-            subsample=subsample,
-            colsample_bytree=colsample_bytree,
+            **params,
             objective="multi:softprob",
             num_class=3,
             eval_metric="mlogloss",
@@ -149,6 +148,8 @@ class GradientBoostModel:
         best = study.best_params
         logger.info("Tuning complete. Best params: %s  log-loss=%.4f", best, study.best_value)
         print(f"  [XGB tuning] best log-loss={study.best_value:.4f}  params={best}")
+        _TUNED_PARAMS_PATH.write_text(json.dumps(best, indent=2))
+        print(f"  [XGB tuning] params saved → {_TUNED_PARAMS_PATH.name}")
 
         self.model = XGBClassifier(
             **best,

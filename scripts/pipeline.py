@@ -102,12 +102,12 @@ def step_fetch(force: bool) -> None:
 
 # ── Step 2–5: Load, build, train, predict ─────────────────────────────────────
 
-def step_load(from_year: int = 2010) -> tuple:
+def step_load(from_year: int = 2010, friendly_weight: float = 0.7) -> tuple:
     from football_predictor.data.sources.international_results import fetch_training_data
     from football_predictor.constants import DEFAULT_FEATURE_MODULES
 
     t0 = time.time()
-    all_data = fetch_training_data(from_year=from_year)
+    all_data = fetch_training_data(from_year=from_year, friendly_weight=friendly_weight)
     comp_mask = all_data["tournament"].str.lower().str.contains(
         "qualif|world cup|copa|euro|nations|africa|asian|gold cup", na=False
     )
@@ -148,12 +148,24 @@ def step_train(X, y, sw, train_df, use_mcmc: bool, mcmc_draws: int, mcmc_tune: i
     cal_X, cal_y = X.iloc[cut:], y.iloc[cut:]
 
     t0 = time.time()
+    from football_predictor.models.gradient_boost import _TUNED_PARAMS_PATH
     xgb = GradientBoostModel()
-    if tune_xgb:
-        # Chronological train/val split reused as the tuning signal.
-        # Ideal would be WC-specific held-out splits; this is a practical approximation.
-        print(f"  [XGB] Tuning hyperparameters ({tune_trials} Optuna trials)...")
-        val_splits = [(X.iloc[:cut], y.iloc[:cut], sw[:cut], cal_X, cal_y)]
+    if tune_xgb or not _TUNED_PARAMS_PATH.exists():
+        # Auto-tune on first run (no cache); force re-tune when --tune is passed.
+        dates = pd.to_datetime(train_df["date"])
+        val_splits = []
+        for wc_year in [2018, 2022]:
+            wc_mask = (train_df["tournament"] == "FIFA World Cup") & (dates.dt.year == wc_year)
+            if wc_mask.sum() >= 16:
+                pre_mask = dates < pd.Timestamp(f"{wc_year}-05-01")
+                val_splits.append((
+                    X[pre_mask], y[pre_mask], sw[pre_mask.values],
+                    X[wc_mask], y[wc_mask],
+                ))
+        if not val_splits:
+            val_splits = [(X.iloc[:cut], y.iloc[:cut], sw[:cut], cal_X, cal_y)]
+        label = "re-tuning" if tune_xgb else "first run — tuning"
+        print(f"  [XGB] {label} ({tune_trials} Optuna trials, {len(val_splits)} WC val folds)...")
         xgb.tune_hyperparameters(val_splits, n_trials=tune_trials)
     xgb.fit(X.iloc[:cut], y.iloc[:cut], sample_weight=sw[:cut])
     xgb_proba_cal = xgb.predict_proba(cal_X)
@@ -444,6 +456,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--mcmc-draws", type=int, default=500)
     p.add_argument("--mcmc-tune",  type=int, default=250)
     p.add_argument("--from-year",  type=int, default=2010, help="Earliest year of training data")
+    p.add_argument("--friendly-weight", type=float, default=None,
+                   help="Override friendly match weight (skips cache + re-tune)")
+    p.add_argument("--retune", action="store_true",
+                   help="Re-run friendly weight grid search even if a cached value exists")
     p.add_argument("--tune",     action="store_true",
                    help="Tune XGBoost hyperparameters via Optuna before training (requires: pip install optuna)")
     p.add_argument("--tune-trials", type=int, default=60, help="Number of Optuna trials (default 60)")
@@ -456,6 +472,10 @@ def main() -> None:
 
     _header("WC 2026 FOOTBALL PREDICTOR — PIPELINE")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  sims={args.sims:,}  |  mcmc={args.mcmc}")
+
+    # ── FRIENDLY WEIGHT ────────────────────────────────────────────────────────
+    friendly_weight = args.friendly_weight if args.friendly_weight is not None else 0.7
+    print(f"\n  friendly_weight={friendly_weight}")
 
     # ── FETCH ──────────────────────────────────────────────────────────────────
     if not args.no_fetch:
@@ -471,7 +491,7 @@ def main() -> None:
     print("  STEP 2 — LOAD HISTORICAL DATA")
     print(f"{'─'*_W}")
     _step(1, 1, "DATA", f"Loading results from {args.from_year}...")
-    all_data, train_df = step_load(from_year=args.from_year)
+    all_data, train_df = step_load(from_year=args.from_year, friendly_weight=friendly_weight)
 
     # ── FEATURES ───────────────────────────────────────────────────────────────
     print(f"\n{'─'*_W}")

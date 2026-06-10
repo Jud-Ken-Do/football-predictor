@@ -42,7 +42,8 @@ python3.11 scripts/pipeline.py --sims 100000
 python3.11 scripts/pipeline.py --backtest       # also run WC 2014+2018+2022 evaluation
 python3.11 scripts/pipeline.py --match "Brazil vs Morocco"
 python3.11 scripts/pipeline.py --mcmc           # MCMC posterior (~5 min extra)
-python3.11 scripts/pipeline.py --tune           # Optuna XGBoost hyperparameter search (60 trials)
+python3.11 scripts/pipeline.py --tune           # force re-tune XGBoost hyperparameters (auto-tunes on first run)
+python3.11 scripts/pipeline.py --retune         # force re-tune friendly_weight grid search (auto-tunes on first run)
 
 # Direct prediction script
 python3.11 scripts/predict_wc2026.py
@@ -77,7 +78,7 @@ Unified 7-step orchestrator with structured print output and per-step timing:
 1. FETCH — api_form, transfermarkt, injuries (cache-aware, skipped if fresh)
 2. LOAD — historical data from 2010
 3. FEAT — build_feature_matrix() across 13 DEFAULT_FEATURE_MODULES + prune_correlated_features(threshold=0.95)
-4. TRAIN — XGB (+ optional Optuna tuning) + temperature scaling + BayesPoisson (EM-derived half-life, DC ρ) + context-adaptive ensemble
+4. TRAIN — XGB (+ optional Optuna tuning with WC 2018/2022 as val folds) + temperature scaling + BayesPoisson (EM-derived half-life, DC ρ) + context-adaptive ensemble
 5. PRED — 72 group stage match probabilities + WC 2026 post-processing (venue, quality, absence)
 6. SIM — 50k Monte Carlo simulations; Kalman posterior uncertainty propagated to λ via lognormal resampling
 7. OUTPUT — print tables + save to `output/wc2026_predictions_YYYY-MM-DD_HH-MM-SS.txt`
@@ -226,7 +227,8 @@ Current calibrated values (from H2H analysis, updated 2026-06-10):
 - **Context-adaptive ensemble**: Static α=0.60 replaced by per-match logistic regression on odds availability, Kalman uncertainty, and H2H depth. Scalar fallback retained.
 - **Timescale consistency**: BayesPoisson half-life derived from Kalman EM-tuned q via `T = P0/(2q²)`, ensuring both models share the same empirical assumption about team strength drift.
 - **Confederation offsets from H2H data**: Mean-Elo approach discarded (CONCACAF/CONMEBOL inflate from insular tournaments). Offsets set from cross-confederation win-rate calibration gaps.
-- **Friendly weighting not exclusion**: Include at 0.3× — friendlies carry signal for Elo calibration and form for infrequently-playing teams.
+- **Friendly weighting not exclusion**: Include at tunable weight (default 0.3×) — friendlies carry signal for Elo calibration and form for infrequently-playing teams. Weight auto-tuned via grid search on first `pipeline.py` run; cached to `data/tuned_params.json`.
+- **Auto-tuning with persistence**: Both XGB hyperparameters (Optuna, 60 TPE trials, WC 2018/2022 val folds) and friendly_weight (grid search) tune automatically on first `pipeline.py` run and cache results. All subsequent runs — including `generate_submission.py` — load from cache. Re-tune with `--tune` / `--retune`.
 
 ## Git branches
 
@@ -242,13 +244,14 @@ Current calibrated values (from H2H analysis, updated 2026-06-10):
 - Glicko-2 with match-importance weighting (Illinois σ update)
 - Monte Carlo tournament simulator with Kalman posterior λ resampling (50k sims, ~10s)
 - Optional full MCMC posterior (`--mcmc` flag; non-centered parameterisation, 0 divergences)
-- Optional Optuna XGBoost hyperparameter tuning (`--tune` flag, 60 TPE trials)
+- Optuna XGBoost hyperparameter tuning — auto-tunes on first run (WC 2018/2022 as val folds), cached to `data/xgb_tuned_params.json`; `--tune` to force re-tune
+- Friendly weight tuning — auto-tunes on first run via grid search, cached to `data/tuned_params.json`; `--retune` to force re-tune; both picked up by `generate_submission.py` automatically
 - `scripts/pipeline.py` — unified orchestrator with structured step-by-step output
 - `scripts/predict_wc2026.py --match "X vs Y"` — single match prediction card
 - `scripts/update_wc2026.py` — live result ingestion, Kalman EKF updates
 - `scripts/backtest.py` — WC 2014/2018/2022 + continental evaluation with bootstrap CI + SHAP
 - `scripts/calibrate_confederations.py` — data-driven confederation strength derivation
-- `scripts/generate_submission_v2.py` — competition output.csv with third-place advancement
+- `scripts/generate_submission.py` — competition output.csv with third-place advancement
 
 ## Known limitations (not bugs, architectural constraints)
 

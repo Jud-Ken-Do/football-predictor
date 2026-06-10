@@ -256,7 +256,7 @@ def plot_shap(xgb: GradientBoostModel, X_test: pd.DataFrame, year: int, label: s
 
 # ── Main backtest function ────────────────────────────────────────────────────
 
-def run_backtest(year: int, include_shap: bool = True, label: str = "") -> dict:
+def run_backtest(year: int, include_shap: bool = True, label: str = "", friendly_weight: float = 0.3) -> dict:
     print(f"\n{'─'*60}")
     print(f"  Backtest: WC {year} Group Stage")
     print(f"{'─'*60}")
@@ -267,7 +267,7 @@ def run_backtest(year: int, include_shap: bool = True, label: str = "") -> dict:
 
     # ── Load data ─────────────────────────────────────────────────────────────
     print("  Loading historical results...")
-    all_data = load_results(from_year=2000)
+    all_data = load_results(from_year=2000, friendly_weight=friendly_weight)
     all_data["date"] = pd.to_datetime(all_data["date"])
     all_data["outcome"] = all_data.apply(_outcome_to_int, axis=1)
 
@@ -326,8 +326,7 @@ def run_backtest(year: int, include_shap: bool = True, label: str = "") -> dict:
     bp.fit(train_df)
     bp.fit_rho(train_df)
 
-    cal_idx = X_train.iloc[cut:].index
-    bp_cal_df = _bp_proba_df(bp, train_df.loc[cal_idx].reset_index(drop=True))
+    bp_cal_df = _bp_proba_df(bp, train_df.iloc[cut:].reset_index(drop=True))
     bp_cal_df.index = y_train.iloc[cut:].index
 
     # ── Ensemble ──────────────────────────────────────────────────────────────
@@ -418,7 +417,7 @@ def print_match_breakdown(test_df: pd.DataFrame, proba: np.ndarray, y_true: np.n
 
 # ── Continental tournament backtest ───────────────────────────────────────────
 
-def run_continental_backtest(name: str, cfg: dict) -> dict:
+def run_continental_backtest(name: str, cfg: dict, friendly_weight: float = 0.3) -> dict:
     """Evaluate model on a continental tournament group stage.
 
     Uses the same train/eval pipeline as WC backtests but with a
@@ -429,7 +428,7 @@ def run_continental_backtest(name: str, cfg: dict) -> dict:
     print(f"  Continental backtest: {name}")
     print(f"{'─'*60}")
 
-    all_data = load_results(from_year=2000)
+    all_data = load_results(from_year=2000, friendly_weight=friendly_weight)
     all_data["date"] = pd.to_datetime(all_data["date"])
     all_data["outcome"] = all_data.apply(_outcome_to_int, axis=1)
 
@@ -478,8 +477,7 @@ def run_continental_backtest(name: str, cfg: dict) -> dict:
     bp.fit(train_df)
     bp.fit_rho(train_df)
 
-    cal_idx = X_train.iloc[cut:].index
-    bp_cal_df = _bp_proba_df(bp, train_df.loc[cal_idx].reset_index(drop=True))
+    bp_cal_df = _bp_proba_df(bp, train_df.iloc[cut:].reset_index(drop=True))
     bp_cal_df.index = y_train.iloc[cut:].index
 
     ensemble = EnsembleModel()
@@ -518,25 +516,64 @@ def run_continental_backtest(name: str, cfg: dict) -> dict:
     return metrics
 
 
+# ── Friendly weight tuning ────────────────────────────────────────────────────
+
+def tune_friendly_weight(years: list[int]) -> float:
+    """Grid-search friendly_weight, minimising avg log-loss across WC backtests."""
+    grid = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0]
+    print(f"\n{'═'*60}")
+    print(f"  Tuning friendly_weight — years: {years}")
+    print(f"{'═'*60}")
+    print(f"  {'weight':>8}  {'avg log-loss':>14}")
+    print(f"  {'─'*8}  {'─'*14}")
+
+    best_w, best_ll = 0.3, float("inf")
+    results = []
+    for w in grid:
+        losses = []
+        for year in years:
+            m = run_backtest(year, include_shap=False, friendly_weight=w)
+            if m:
+                losses.append(m["log_loss"])
+        if losses:
+            avg = float(np.mean(losses))
+            marker = " ← best" if avg < best_ll else ""
+            print(f"  {w:>8.2f}  {avg:>14.4f}{marker}")
+            results.append((w, avg))
+            if avg < best_ll:
+                best_ll, best_w = avg, w
+
+    print(f"\n  Best friendly_weight: {best_w}  (avg log-loss: {best_ll:.4f})")
+    return best_w
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Backtest football predictor on past World Cups")
-    parser.add_argument("--years", nargs="+", type=int, default=[2014, 2018, 2022])
+    parser.add_argument("--years", nargs="+", type=int, default=[2018, 2022])
     parser.add_argument("--no-shap", action="store_true", help="Skip SHAP computation (faster)")
     parser.add_argument("--continental", action="store_true",
                         help="Also backtest on Copa América 2021, Euro 2020, AFCON 2022, Asian Cup 2023")
+    parser.add_argument("--tune-friendly-weight", action="store_true",
+                        help="Grid-search friendly_weight and report optimal value")
+    parser.add_argument("--friendly-weight", type=float, default=0.3,
+                        help="Friendly match weight (default 0.3, override or use --tune-friendly-weight)")
     args = parser.parse_args()
+
+    if args.tune_friendly_weight:
+        tune_friendly_weight(args.years)
+        return
 
     all_metrics = []
     for year in args.years:
-        m = run_backtest(year, include_shap=not args.no_shap)
+        m = run_backtest(year, include_shap=not args.no_shap, friendly_weight=args.friendly_weight)
         if m:
             all_metrics.append({**m, "label": f"WC {m['year']}"})
 
     if args.continental:
         for name, cfg in CONTINENTAL_CONFIGS.items():
-            m = run_continental_backtest(name, cfg)
+            m = run_continental_backtest(name, cfg, friendly_weight=args.friendly_weight)
             if m:
                 all_metrics.append(m)
 
