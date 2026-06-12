@@ -52,10 +52,21 @@ def fetch_international_results(
         df = pd.read_csv(_CACHE_PATH)
     else:
         logger.info("Downloading international results from GitHub...")
-        resp = requests.get(_CSV_URL, timeout=30)
-        resp.raise_for_status()
-        _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _CACHE_PATH.write_text(resp.text, encoding="utf-8")
+        try:
+            resp = requests.get(_CSV_URL, timeout=30)
+            resp.raise_for_status()
+            _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _CACHE_PATH.write_text(resp.text, encoding="utf-8")
+        except Exception as exc:
+            # Tournament-day resilience: if the re-fetch fails but a (possibly
+            # stale) cache exists, warn and fall back to it rather than crash.
+            if _CACHE_PATH.exists():
+                logger.warning(
+                    "Download of international results failed (%s) — "
+                    "falling back to stale cache at %s", exc, _CACHE_PATH,
+                )
+            else:
+                raise
         df = pd.read_csv(_CACHE_PATH)
 
     df["date"] = pd.to_datetime(df["date"])
@@ -73,6 +84,12 @@ def fetch_international_results(
     df["away_team"] = df["away_team"].replace(_NAME_MAP)
     df["home_goals"] = df["home_goals"].astype(int)
     df["away_goals"] = df["away_goals"].astype(int)
+
+    # Drop exact duplicate rows (upstream CSV occasionally repeats fixtures)
+    df = df.drop_duplicates(
+        subset=["date", "home_team", "away_team", "home_goals", "away_goals"],
+        keep="first",
+    )
 
     df = df[df["date"].dt.year >= from_year]
 
@@ -96,8 +113,10 @@ def fetch_training_data(from_year: int = 2014, use_cache: bool = True, friendly_
 
     Includes everything: WC, qualifiers, continental tournaments, and friendlies.
     Friendlies are included but down-weighted since squads are rotated and outcomes
-    are less contested. The friendly_weight parameter controls how much — 0.7 chosen
-    by grid search over WC 2018/2022 backtests.
+    are less contested. The friendly_weight parameter controls how much — in
+    practice the value is normally supplied by callers from the tuned cache at
+    data/tuned_params.json (grid-searched on first pipeline run); the default
+    here is only a fallback.
 
     Match type weights:
         Friendly:                  friendly_weight (tunable, default 0.7)
@@ -124,7 +143,7 @@ def fetch_training_data(from_year: int = 2014, use_cache: bool = True, friendly_
     return df.reset_index(drop=True)
 
 
-def _match_weight(tournament: str, friendly_weight: float = 0.3) -> float:
+def _match_weight(tournament: str, friendly_weight: float = 0.8) -> float:
     t = tournament.lower()
     if "friendly" in t:
         return friendly_weight

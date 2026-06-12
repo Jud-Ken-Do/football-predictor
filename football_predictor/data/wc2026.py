@@ -37,25 +37,59 @@ GROUPS: dict[str, list[str]] = {
 }
 
 # ── Team name normalisations ───────────────────────────────────────────────────
-# Maps wc2026 draw names → international_results dataset names.
+# Maps name variants from any source → canonical training-data names.
+#
+# Canonical = martj42 names AFTER international_results._NAME_MAP renames:
+#   Czechia, Türkiye, Cabo Verde, IR Iran (renamed), plus South Korea,
+#   Ivory Coast, Bosnia and Herzegovina, DR Congo, United States, Curaçao
+#   (unchanged from the raw CSV).
+# All 48 WC 2026 draw names are themselves canonical → identity passthrough.
 
 TEAM_NAME_MAP: dict[str, str] = {
-    "United States": "United States",
-    "South Korea": "Korea Republic",
-    "Ivory Coast": "Côte d'Ivoire",
-    "DR Congo": "DR Congo",
-    "Czechia": "Czech Republic",
-    "Türkiye": "Turkey",
-    "Cabo Verde": "Cape Verde",
-    "Bosnia and Herzegovina": "Bosnia-Herzegovina",
-    "IR Iran": "IR Iran",
-    "Curaçao": "Curaçao",
+    # Pre-rename martj42 / FIFA / football-data.co.uk variants
+    "Czech Republic": "Czechia",
+    "Turkey": "Türkiye",
+    "Cape Verde": "Cabo Verde",
+    "Iran": "IR Iran",
+    "Korea Republic": "South Korea",
+    "Côte d'Ivoire": "Ivory Coast",
+    "Bosnia-Herzegovina": "Bosnia and Herzegovina",
+    # API-Football name variants
+    "Bosnia & Herzegovina": "Bosnia and Herzegovina",
+    "Cape Verde Islands": "Cabo Verde",
+    "Congo DR": "DR Congo",
+    "D.R. Congo": "DR Congo",
+    "USA": "United States",
+    "Curacao": "Curaçao",
 }
+
+# All 48 canonical team names (draw names) — used for ingress validation.
+ALL_WC2026_TEAMS: frozenset[str] = frozenset(
+    t for teams in GROUPS.values() for t in teams
+)
 
 
 def normalise(team: str) -> str:
-    """Map a draw name to the international_results dataset name."""
+    """Map any source's team-name variant to the canonical dataset name."""
     return TEAM_NAME_MAP.get(team, team)
+
+
+def validate_team_coverage(df, min_matches: int = 10) -> list[str]:
+    """Return WC 2026 teams under-represented in a training DataFrame.
+
+    Guards against silent name-mismatch bugs: a team whose normalised name
+    doesn't appear in the data would otherwise fall back to default ratings /
+    league-average strength without any error.
+    """
+    import pandas as pd
+
+    counts = pd.concat([df["home_team"], df["away_team"]]).value_counts()
+    problems = []
+    for t in sorted(ALL_WC2026_TEAMS):
+        c = int(counts.get(normalise(t), 0))
+        if c < min_matches:
+            problems.append(f"{t} → '{normalise(t)}' ({c} matches)")
+    return problems
 
 
 # ── Group stage fixtures (72 matches: 6 per group) ────────────────────────────

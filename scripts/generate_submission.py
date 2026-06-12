@@ -1,20 +1,12 @@
-"""Generate output.csv — v2 with cross-group 3rd-place advancement.
+"""Generate output.csv — submission generator with cross-group 3rd-place advancement.
 
-Identical to generate_submission.py except for one improvement:
-
-  v1 estimates P(team advances) per group in isolation — only top-2 of that group.
-  v2 estimates P(team advances to R32) via a global simulation of all 12 groups
-     simultaneously, then picks the best 8 third-place teams per the official rule.
-
-Why it matters: In WC 2026, 32 teams qualify — 12 group winners + 12 runners-up +
-8 best third-place teams. A team tipped as top-2 in their group may have a higher
-true P(advance) than the per-group sim shows because even if they slip to 3rd they
-might still qualify as a best third. This makes the optimizer slightly more willing
-to correctly tip borderline teams in competitive groups.
+Simulates all 12 groups simultaneously and applies the best-8-third-place rule per
+the official WC 2026 format: 32 teams advance (12 winners + 12 runners-up + 8 best
+third-place teams ranked globally by pts/gd/gf).
 
 Usage:
-    python3.11 scripts/generate_submission_v2.py
-    python3.11 scripts/generate_submission_v2.py --sims 50000   # more global sims
+    python3.11 scripts/generate_submission.py
+    python3.11 scripts/generate_submission.py --sims 50000   # more global sims
 """
 import csv
 import sys
@@ -42,28 +34,42 @@ _TEMPLATE_TO_SCHEDULE = {
 
 # ── Simulation helpers (same as v1) ───────────────────────────────────────────
 
-def _simulate_match(lam_h, lam_a, p_home, p_draw, p_away, n_sims, rng):
-    lam_avg = (lam_h + lam_a) / 2
+def _simulate_match(lam_h, lam_a, p_home, p_draw, p_away, n_sims, rng,
+                    lam_h_log_std=0.0, lam_a_log_std=0.0):
+    # Mean-preserving lognormal (location = log λ − s²/2); per-side gates —
+    # see simulate_goals in predict_wc2026.py.
+    if lam_h_log_std > 0.02:
+        lam_h_arr = rng.lognormal(
+            np.log(max(lam_h, 1e-3)) - 0.5 * lam_h_log_std ** 2, lam_h_log_std, n_sims)
+    else:
+        lam_h_arr = np.full(n_sims, lam_h)
+    if lam_a_log_std > 0.02:
+        lam_a_arr = rng.lognormal(
+            np.log(max(lam_a, 1e-3)) - 0.5 * lam_a_log_std ** 2, lam_a_log_std, n_sims)
+    else:
+        lam_a_arr = np.full(n_sims, lam_a)
+    lam_avg_arr = (lam_h_arr + lam_a_arr) / 2
+
     outcomes = rng.choice(3, size=n_sims, p=[p_home, p_draw, p_away])
     h = np.zeros(n_sims, dtype=np.int32)
     a = np.zeros(n_sims, dtype=np.int32)
 
     mask = outcomes == 0
     if mask.any():
-        gh = np.maximum(1, rng.poisson(lam_h, mask.sum()))
+        gh = np.maximum(1, rng.poisson(lam_h_arr[mask]))
         h[mask] = gh
-        a[mask] = np.minimum(gh - 1, rng.poisson(lam_a, mask.sum()))
+        a[mask] = np.minimum(gh - 1, rng.poisson(lam_a_arr[mask]))
 
     mask = outcomes == 1
     if mask.any():
-        g = rng.poisson(lam_avg, mask.sum())
+        g = rng.poisson(lam_avg_arr[mask])
         h[mask] = a[mask] = g
 
     mask = outcomes == 2
     if mask.any():
-        ga = np.maximum(1, rng.poisson(lam_a, mask.sum()))
+        ga = np.maximum(1, rng.poisson(lam_a_arr[mask]))
         a[mask] = ga
-        h[mask] = np.minimum(ga - 1, rng.poisson(lam_h, mask.sum()))
+        h[mask] = np.minimum(ga - 1, rng.poisson(lam_h_arr[mask]))
 
     return h, a
 
@@ -134,6 +140,7 @@ def _top_k_candidates(lam_h, lam_a, k=8, max_g=6):
 def estimate_advance_probs(
     match_data: list[dict],
     n_sims: int = 30_000,
+    seed: int = 42,
 ) -> dict[str, float]:
     """
     Simulate all 12 groups simultaneously and apply the best-8 third-place rule.
@@ -161,7 +168,7 @@ def estimate_advance_probs(
             "match_pairs": match_pairs,
         }
 
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(seed)
 
     # advance_counts[team] = number of sims where team advances to R32
     advance_counts: dict[str, int] = {t: 0 for grp in GROUPS.values() for t in grp}
@@ -196,6 +203,8 @@ def estimate_advance_probs(
                         m["bp_lam_home"], m["bp_lam_away"],
                         m["p_home"], m["p_draw"], m["p_away"],
                         batch, rng,
+                        m.get("kalman_lam_h_log_std", 0.0),
+                        m.get("kalman_lam_a_log_std", 0.0),
                     )
 
             pts, gd_arr, gf, ranks = _group_standings(sim_h, sim_a, match_pairs, n_teams)
@@ -279,6 +288,8 @@ def optimise_group_scores(
                 m["bp_lam_home"], m["bp_lam_away"],
                 m["p_home"], m["p_draw"], m["p_away"],
                 n_sims, rng,
+                m.get("kalman_lam_h_log_std", 0.0),
+                m.get("kalman_lam_a_log_std", 0.0),
             )
 
     candidates: list[list[tuple[int, int]]] = []
@@ -306,23 +317,33 @@ def optimise_group_scores(
         adv = 3.0 * float(np.sum(pred_advances.astype(float) * p_advance))
         return total_match + adv
 
-    combo = [int(np.argmax(match_ev[m])) for m in range(n)]
-    best_ev = combo_ev(combo)
+    def descend(start: list[int]) -> tuple[list[int], float]:
+        combo, best = start, combo_ev(start)
+        improved = True
+        while improved:
+            improved = False
+            for m_idx in range(n):
+                for c_idx in range(k_per_match[m_idx]):
+                    if c_idx == combo[m_idx]:
+                        continue
+                    new_combo = combo.copy()
+                    new_combo[m_idx] = c_idx
+                    ev = combo_ev(new_combo)
+                    if ev > best + 1e-9:
+                        best = ev
+                        combo = new_combo
+                        improved = True
+        return combo, best
 
-    improved = True
-    while improved:
-        improved = False
-        for m_idx in range(n):
-            for c_idx in range(k_per_match[m_idx]):
-                if c_idx == combo[m_idx]:
-                    continue
-                new_combo = combo.copy()
-                new_combo[m_idx] = c_idx
-                ev = combo_ev(new_combo)
-                if ev > best_ev + 1e-9:
-                    best_ev = ev
-                    combo = new_combo
-                    improved = True
+    # Multi-restart coordinate descent: the per-match-argmax start can stall
+    # in a local optimum (the advancement bonus couples matches through the
+    # group table). Greedy start + random restarts, keep the global best.
+    combo, best_ev = descend([int(np.argmax(match_ev[m])) for m in range(n)])
+    for _ in range(7):
+        start = [int(rng.integers(k_per_match[m])) for m in range(n)]
+        cand_combo, cand_ev = descend(start)
+        if cand_ev > best_ev + 1e-9:
+            combo, best_ev = cand_combo, cand_ev
 
     return [candidates[m][c] for m, c in enumerate(combo)]
 
@@ -334,13 +355,23 @@ def main(n_global_sims: int = 30_000):
     p = argparse.ArgumentParser()
     p.add_argument("--sims", type=int, default=n_global_sims,
                    help="Global simulation count for P(advance) estimation")
+    p.add_argument("--mcmc", action="store_true",
+                   help="Use full MCMC posterior for BayesPoisson instead of MAP (~5 min extra)")
+    p.add_argument("--mcmc-draws", type=int, default=500)
+    p.add_argument("--mcmc-tune",  type=int, default=250)
     args = p.parse_args()
 
     print("=" * 50)
     print("  Occam's Folly — WC 2026 Submission Generator")
     print("=" * 50)
-    print("\n[1/5] Training models (this takes ~60s)...")
-    xgb, temp_cal, bp, ensemble, all_data, _ = train_model(quiet=False)
+    mode = "MCMC" if args.mcmc else "MAP"
+    print(f"\n[1/5] Training models ({mode} — {'~5 min' if args.mcmc else '~60s'})...")
+    xgb, temp_cal, bp, ensemble, all_data, _ = train_model(
+        quiet=False,
+        use_mcmc=args.mcmc,
+        mcmc_draws=args.mcmc_draws,
+        mcmc_tune=args.mcmc_tune,
+    )
 
     print("\n[2/5] Predicting all 72 group stage fixtures...")
     match_data = predict_group_stage(xgb, temp_cal, bp, ensemble, all_data, quiet=True)
@@ -375,7 +406,7 @@ def main(n_global_sims: int = 30_000):
         print(f"  Group {group_label}: done")
 
     # Read template and fill scores
-    template_path = _ROOT / "output_template.csv"
+    template_path = _ROOT / "templates" / "output_template.csv"
     with open(template_path, newline="") as f:
         rows = list(csv.DictReader(f))
 

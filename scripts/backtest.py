@@ -54,11 +54,12 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 OUTCOME_MAP = {"home_win": 0, "draw": 1, "away_win": 2}
 
-# WC group stage date ranges
+# WC group stage date ranges (group stage ONLY — knockout matches have
+# different draw dynamics and may carry extra-time scorelines in the source)
 WC_DATE_RANGES = {
     2014: ("2014-06-12", "2014-06-26"),
     2018: ("2018-06-14", "2018-06-28"),
-    2022: ("2022-11-20", "2022-12-09"),
+    2022: ("2022-11-20", "2022-12-02"),  # was 12-09: leaked all 8 R16 + 2 QFs
 }
 WC_CUTOFFS = {
     2014: "2014-06-01",
@@ -70,7 +71,7 @@ WC_CUTOFFS = {
 CONTINENTAL_CONFIGS = {
     "Copa América 2021": {
         "name_fragment": "Copa Am",
-        "date_range": ("2021-06-13", "2021-07-02"),  # group stage only
+        "date_range": ("2021-06-13", "2021-06-28"),  # group stage only (was 07-02: leaked QFs)
         "cutoff": "2021-06-01",
     },
     "UEFA Euro 2020": {
@@ -309,12 +310,14 @@ def run_backtest(year: int, include_shap: bool = True, label: str = "", friendly
     sw = train_df["match_weight"].values if "match_weight" in train_df else np.ones(len(X_train))
     cut = int(len(X_train) * 0.85)
 
-    xgb = GradientBoostModel()
+    # use_tuned_cache=False: cached hyperparameters were Optuna-selected on
+    # WC 2018/2022 — evaluating those tournaments with them is test leakage.
+    xgb = GradientBoostModel(use_tuned_cache=False)
     xgb.fit(X_train.iloc[:cut], y_train.iloc[:cut], sample_weight=sw[:cut])
 
     xgb_cal = xgb.predict_proba(X_train.iloc[cut:])
     temp_cal = TemperatureScaling()
-    temp_cal.fit(xgb_cal, y_train.iloc[cut:])
+    temp_cal.fit(xgb_cal, y_train.iloc[cut:], sample_weight=sw[cut:])
 
     # ── Train BayesPoisson ────────────────────────────────────────────────────
     print("  Training BayesianPoisson (MAP)...")
@@ -323,8 +326,10 @@ def run_backtest(year: int, include_shap: bool = True, label: str = "", friendly
     hl = BayesianPoissonModel.half_life_from_q(q_tuned)
     print(f"  BayesPoisson half-life: {hl}d  (Kalman q={q_tuned:.4f}/yr)")
     bp = BayesianPoissonModel(half_life_days=hl)
-    bp.fit(train_df)
-    bp.fit_rho(train_df)
+    # Fit on the pre-calibration split only — calibration probabilities must be
+    # out-of-sample for BOTH models or the ensemble α overweights BP
+    # (production scripts use the same order).
+    bp.fit(train_df.iloc[:cut])
 
     bp_cal_df = _bp_proba_df(bp, train_df.iloc[cut:].reset_index(drop=True))
     bp_cal_df.index = y_train.iloc[cut:].index
@@ -332,7 +337,15 @@ def run_backtest(year: int, include_shap: bool = True, label: str = "", friendly
     # ── Ensemble ──────────────────────────────────────────────────────────────
     print("  Fitting ensemble (α * XGB + (1-α) * BayesPoisson)...")
     ensemble = EnsembleModel()
-    ensemble.fit(xgb_cal, bp_cal_df, y_train.iloc[cut:], context_X=X_train.iloc[cut:].reset_index(drop=True))
+    # α fitted on temperature-scaled XGB probs — the distribution blended at
+    # predict time (line below uses temp_cal.transform too).
+    ensemble.fit(temp_cal.transform(xgb_cal), bp_cal_df, y_train.iloc[cut:],
+                 context_X=X_train.iloc[cut:].reset_index(drop=True),
+                 sample_weight=sw[cut:])
+
+    # Refit BP on full training data now α is locked; then estimate DC ρ.
+    bp.fit(train_df)
+    bp.fit_rho(train_df)
 
     # ── Predict test set ──────────────────────────────────────────────────────
     print("  Predicting WC group stage...")
@@ -464,24 +477,32 @@ def run_continental_backtest(name: str, cfg: dict, friendly_weight: float = 0.3)
     sw = train_df["match_weight"].values if "match_weight" in train_df else np.ones(len(X_train))
     cut = int(len(X_train) * 0.85)
 
-    xgb = GradientBoostModel()
+    # use_tuned_cache=False — same leakage rationale as run_backtest.
+    xgb = GradientBoostModel(use_tuned_cache=False)
     xgb.fit(X_train.iloc[:cut], y_train.iloc[:cut], sample_weight=sw[:cut])
     xgb_cal = xgb.predict_proba(X_train.iloc[cut:])
     temp_cal = TemperatureScaling()
-    temp_cal.fit(xgb_cal, y_train.iloc[cut:])
+    temp_cal.fit(xgb_cal, y_train.iloc[cut:], sample_weight=sw[cut:])
 
     from football_predictor.features.kalman_strength import KalmanStrengthFeatures
     q_tuned = KalmanStrengthFeatures.get_last_tuned_q()
     hl = BayesianPoissonModel.half_life_from_q(q_tuned)
     bp = BayesianPoissonModel(half_life_days=hl)
-    bp.fit(train_df)
-    bp.fit_rho(train_df)
+    # Calibration probs must be out-of-sample for BOTH models (see run_backtest).
+    bp.fit(train_df.iloc[:cut])
 
     bp_cal_df = _bp_proba_df(bp, train_df.iloc[cut:].reset_index(drop=True))
     bp_cal_df.index = y_train.iloc[cut:].index
 
     ensemble = EnsembleModel()
-    ensemble.fit(xgb_cal, bp_cal_df, y_train.iloc[cut:], context_X=X_train.iloc[cut:].reset_index(drop=True))
+    # α fitted on temperature-scaled XGB probs (the distribution used below).
+    ensemble.fit(temp_cal.transform(xgb_cal), bp_cal_df, y_train.iloc[cut:],
+                 context_X=X_train.iloc[cut:].reset_index(drop=True),
+                 sample_weight=sw[cut:])
+
+    # Refit BP on full training data now α is locked; then estimate DC ρ.
+    bp.fit(train_df)
+    bp.fit_rho(train_df)
 
     xgb_test = temp_cal.transform(xgb.predict_proba(X_test))
     bp_test = _bp_proba_df(bp, test_df.reset_index(drop=True))
@@ -519,7 +540,17 @@ def run_continental_backtest(name: str, cfg: dict, friendly_weight: float = 0.3)
 # ── Friendly weight tuning ────────────────────────────────────────────────────
 
 def tune_friendly_weight(years: list[int]) -> float:
-    """Grid-search friendly_weight, minimising avg log-loss across WC backtests."""
+    """Grid-search friendly_weight, minimising avg log-loss across WC backtests.
+
+    The selected value is persisted to data/tuned_params.json so
+    pipeline.py / predict_wc2026.py / generate_submission.py all pick it up
+    (previously the result was printed and discarded — nothing ever wrote
+    the cache, so '--retune' was a silent no-op).
+
+    NOTE: weights selected on years that are also the reported evaluation
+    make those backtest numbers optimistic — prefer disjoint tuning years
+    (e.g. tune on 2014 + continental, report on 2018/2022).
+    """
     grid = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0]
     print(f"\n{'═'*60}")
     print(f"  Tuning friendly_weight — years: {years}")
@@ -544,6 +575,19 @@ def tune_friendly_weight(years: list[int]) -> float:
                 best_ll, best_w = avg, w
 
     print(f"\n  Best friendly_weight: {best_w}  (avg log-loss: {best_ll:.4f})")
+
+    # Persist so all entry points train with the tuned value.
+    import json as _json
+    tp = ROOT / "data" / "tuned_params.json"
+    try:
+        cur = _json.loads(tp.read_text()) if tp.exists() else {}
+    except Exception:
+        cur = {}
+    cur["friendly_weight"] = best_w
+    cur["friendly_weight_tuned_on"] = [str(y) for y in years]
+    tp.parent.mkdir(exist_ok=True)
+    tp.write_text(_json.dumps(cur, indent=2))
+    print(f"  Persisted to {tp}")
     return best_w
 
 

@@ -70,10 +70,53 @@ def _parse_score(s: str) -> tuple[int, int]:
         sys.exit(1)
 
 
+def _find_scheduled_fixture(home: str, away: str) -> tuple[dict | None, bool]:
+    """Find the official fixture for a team pair.
+
+    Returns (fixture, reversed) — reversed=True when the user typed the teams
+    in the opposite orientation to the official schedule.
+    """
+    try:
+        from football_predictor.data.wc2026 import GROUP_STAGE_SCHEDULE, normalise
+        h, a = normalise(home), normalise(away)
+        for m in GROUP_STAGE_SCHEDULE:
+            mh, ma = normalise(m["home_team"]), normalise(m["away_team"])
+            if (mh, ma) == (h, a):
+                return m, False
+            if (mh, ma) == (a, h):
+                return m, True
+    except Exception:
+        pass
+    return None, False
+
+
 def cmd_record(args: argparse.Namespace) -> None:
+    from football_predictor.data.wc2026 import normalise
+
     home, away = _parse_match_string(args.result)
     hg, ag = _parse_score(args.score)
-    match_date = args.date or str(date.today())
+    # Canonicalise so typed variants ("Iran", "USA") can't create phantom
+    # teams in the rating systems.
+    home, away = normalise(home), normalise(away)
+
+    fixture, reversed_ = _find_scheduled_fixture(home, away)
+    if fixture is None:
+        print(f"  ⚠️  '{home} vs {away}' is not in the official WC 2026 group schedule.")
+        confirm = input("  Record anyway (knockout/other)? (y/N): ").strip().lower()
+        if confirm != "y":
+            print("  Aborted.")
+            return
+    elif reversed_:
+        # Store in the official orientation so merge/dedup keys always match.
+        home, away = normalise(fixture["home_team"]), normalise(fixture["away_team"])
+        hg, ag = ag, hg
+        print(f"  (orientation swapped to match official schedule: {home} vs {away})")
+
+    # Date: explicit flag > official schedule date > today.
+    match_date = args.date or (fixture["date"] if fixture else str(date.today()))
+
+    group = (args.group.upper() if args.group else
+             (fixture["group"] if fixture else ""))
 
     entry: dict = {
         "date": match_date,
@@ -83,23 +126,25 @@ def cmd_record(args: argparse.Namespace) -> None:
         "away_goals": ag,
         "neutral": True,  # WC 2026 is all neutral venues
     }
-    if args.group:
-        entry["group"] = args.group.upper()
+    if group:
+        entry["group"] = group
 
     results = _load_results()
 
-    # Check for duplicate
+    # Check for duplicate — same team pair in either orientation, any date
+    # (a fixture only occurs once in the group stage).
+    pair = {home, away}
     for r in results:
-        if r["home_team"] == home and r["away_team"] == away and r["date"] == match_date:
-            print(f"  Result already recorded for {home} vs {away} on {match_date}.")
+        if {normalise(r["home_team"]), normalise(r["away_team"])} == pair:
+            print(f"  Result already recorded for {r['home_team']} vs {r['away_team']} on {r['date']}.")
             print(f"  Existing: {r['home_goals']}-{r['away_goals']}")
             overwrite = input("  Overwrite? (y/N): ").strip().lower()
             if overwrite != "y":
                 print("  Aborted.")
                 return
-            results = [r for r in results if not (
-                r["home_team"] == home and r["away_team"] == away and r["date"] == match_date
-            )]
+            results = [x for x in results if
+                       {normalise(x["home_team"]), normalise(x["away_team"])} != pair]
+            break
 
     results.append(entry)
     results.sort(key=lambda r: (r["date"], r["home_team"]))

@@ -67,8 +67,12 @@ class OddsFeatures(FeatureModule):
     def transform(self, match: pd.Series, data: pd.DataFrame) -> dict[str, float]:
         self._ensure_lookup()
 
-        home = str(match.get("home_team", ""))
-        away = str(match.get("away_team", ""))
+        from football_predictor.data.wc2026 import normalise
+
+        # Lookup keys are built with normalise() (football_data_co_uk.py) —
+        # query with the same canonical names or renamed teams silently miss.
+        home = normalise(str(match.get("home_team", "")))
+        away = normalise(str(match.get("away_team", "")))
         date_str = str(pd.Timestamp(match["date"]).date())
 
         entry = self._lookup.get((home, away, date_str))

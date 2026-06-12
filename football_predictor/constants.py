@@ -10,7 +10,8 @@ FORM_WINDOW_SIZES = [3, 5, 10]          # rolling windows (in matches) for form 
 # International teams play ~10 matches/year vs 38 for clubs — use wider windows
 INTERNATIONAL_FORM_WINDOW_SIZES = [5, 10, 20]
 ELO_K_FACTOR_INTERNATIONAL = 40         # higher K for international (more volatile)
-ELO_K_FACTOR_WC = 60                    # extra weight for World Cup matches
+# NOTE: there is no separate WC K-factor constant — the effective World Cup
+# K-factor is ELO_K_FACTOR_INTERNATIONAL × 1.5 match weight (see elo.py).
 ELO_HOME_ADVANTAGE = 100                # Elo points added for home team (0 for neutral venues)
 ELO_NEUTRAL_ADVANTAGE = 0              # no home advantage at World Cup
 PI_RATING_DECAY = 0.035                  # pi-rating per-game decay constant
@@ -100,13 +101,19 @@ DEFAULT_FEATURE_MODULES = [
     "squad_strength",   # long-term attack/defence quality from intl results
     # ── Context / structure ───────────────────────────────────────────────────
     "confederation",    # UEFA/CONMEBOL/AFC/CAF/CONCACAF strength encoding
-    "tournament_stage", # group stage vs knockout, pressure multiplier
+    # "tournament_stage" REMOVED from training (2026-06-12): the martj42
+    # training data has no `stage` column, so every historical row got the
+    # default "group_stage" — all six features were constants (dead weight,
+    # pruned or uninformative). Module file kept for potential future use.
     # ── External data (historically available) ────────────────────────────────
     "rankings",         # FIFA world rankings points (Dato-Futbol, 1992–2024)
     "odds",             # bookmaker closing odds (qualifier history; WC 2026 pre-match TBD)
-    "transfermarkt",    # squad market values from Transfermarkt.com (June 2026)
     "xg_form",          # rolling xG / xGA — excel (UEFA/AFC/CONMEBOL) + FBref (CAF/CONCACAF)
     # "xg",             # expected goals — requires StatsBomb/Opta event data
+    # "transfermarkt" REMOVED from training (2026-06-12): its June-2026 squad
+    # values were applied to ALL historical rows — a future-derived quality
+    # measure leaking into past training data (same covariate-shift class that
+    # excluded sofifa). Now a WC context module below.
 ]
 
 # WC-2026-specific modules that produce zeros for all historical training rows.
@@ -120,6 +127,8 @@ WC_CONTEXT_MODULES = [
     "sofifa_ratings",  # EA FC 26 squad quality: overall, pace, shooting, passing, etc.
     "venue_wc2026",    # partial home advantage (MEX/USA/CAN), altitude, travel burden
     "injury",          # pre-match injuries/suspensions from API-Football cache
+    "wc2026_market",   # live pre-match odds: AH line, O/U 2.5, BTTS, clean sheet (API-Football)
+    "transfermarkt",   # squad market values (June 2026 snapshot — leakage if trained on)
 ]
 
 # ── Data sources ───────────────────────────────────────────────────────────────

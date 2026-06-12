@@ -14,6 +14,7 @@ Actual results integration:
     Stored in data/wc2026_actual_results.json and automatically loaded here.
 """
 import argparse
+import itertools
 import json
 import time
 import warnings
@@ -36,6 +37,14 @@ from football_predictor.constants import DEFAULT_FEATURE_MODULES
 
 _ROOT = Path(__file__).resolve().parent.parent
 _ACTUAL_RESULTS_FILE = _ROOT / "data" / "wc2026_actual_results.json"
+_TUNED_PARAMS_FILE   = _ROOT / "data" / "tuned_params.json"
+
+
+def _load_friendly_weight() -> float:
+    try:
+        return json.loads(_TUNED_PARAMS_FILE.read_text()).get("friendly_weight", 0.7) if _TUNED_PARAMS_FILE.exists() else 0.7
+    except Exception:
+        return 0.7
 
 
 def load_actual_results() -> list[dict]:
@@ -49,16 +58,88 @@ def load_actual_results() -> list[dict]:
         return []
 
 
+def append_actual_results(all_data: pd.DataFrame, quiet: bool = False) -> pd.DataFrame:
+    """Append recorded WC 2026 results to the training data, with dedup.
+
+    - Canonicalises recorded names (update_wc2026.py may store user-typed
+      variants like "Iran") so no phantom teams enter the rating systems.
+    - Dedups against the martj42 source: its cache refreshes every 48h and
+      will itself contain played WC 2026 matches — without this, every
+      recorded result is seen TWICE by Elo/Glicko/Kalman/BayesPoisson at
+      match weight 1.5.
+    - Validates that every WC 2026 team resolves to a name present in the
+      training data (a silent miss means default ratings for that team).
+    """
+    # Only WC group stage matches (group A–L) — friendlies or warmups excluded
+    actual = [r for r in load_actual_results()
+              if str(r.get("group", "")).upper() not in ("", "FRIENDLY", "WARMUP", "TEST")]
+    if actual:
+        actual_df = pd.DataFrame(actual)
+        actual_df["home_team"] = actual_df["home_team"].astype(str).map(normalise)
+        actual_df["away_team"] = actual_df["away_team"].astype(str).map(normalise)
+        actual_df["date"] = pd.to_datetime(actual_df["date"])
+        actual_df["tournament"] = "FIFA World Cup"
+        actual_df["match_weight"] = 1.5
+        # Host nations playing at home are NOT neutral for rating updates —
+        # a Mexico win in Mexico City updated Elo/Kalman with no HA discount,
+        # inflating host ratings. (Hosts listed as the away side keep
+        # neutral=True — Elo can't express away-side HA; acceptable loss.)
+        _hosts = {"Mexico", "United States", "Canada"}
+        actual_df["neutral"] = ~actual_df["home_team"].isin(_hosts)
+        for col in ["home_goals", "away_goals"]:
+            if col not in actual_df.columns:
+                actual_df[col] = 0
+
+        recorded_pairs = {
+            frozenset((h, a))
+            for h, a in zip(actual_df["home_team"], actual_df["away_team"])
+        }
+        is_wc26 = (
+            all_data["tournament"].astype(str).str.contains("World Cup", na=False)
+            & ~all_data["tournament"].astype(str).str.contains("qualif", case=False, na=False)
+            & (pd.to_datetime(all_data["date"]) >= pd.Timestamp("2026-06-01"))
+        )
+        if is_wc26.any():
+            dup_mask = all_data.loc[is_wc26].apply(
+                lambda r: frozenset((normalise(str(r["home_team"])),
+                                     normalise(str(r["away_team"])))) in recorded_pairs,
+                axis=1,
+            )
+            n_dropped = int(dup_mask.sum())
+            if n_dropped:
+                all_data = all_data.drop(index=dup_mask[dup_mask].index)
+                if not quiet:
+                    print(f"  - {n_dropped} duplicate WC 2026 rows removed from source data")
+        all_data = pd.concat([all_data, actual_df], ignore_index=True)
+        if not quiet:
+            print(f"  + {len(actual)} actual WC 2026 results added to training context")
+
+    from football_predictor.data.wc2026 import validate_team_coverage
+    coverage_problems = validate_team_coverage(all_data, min_matches=10)
+    if coverage_problems:
+        print("  ⚠️  TEAM NAME COVERAGE PROBLEMS (teams will get default ratings!):")
+        for p in coverage_problems:
+            print(f"     {p}")
+
+    return all_data
+
+
 def merge_actual_results(match_data: list[dict], actual: list[dict]) -> list[dict]:
     """Attach actual scores to already-played fixtures; freeze their probabilities."""
     if not actual:
         return match_data
 
-    # Build lookup: (normalised_home, normalised_away) → result dict
+    # Build lookup: (normalised_home, normalised_away) → result dict.
+    # Both orientations are stored so a result recorded with teams swapped
+    # still locks the fixture (goals swapped accordingly).
     lookup: dict[tuple, dict] = {}
     for r in actual:
-        key = (normalise(r["home_team"]), normalise(r["away_team"]))
-        lookup[key] = r
+        h, a = normalise(r["home_team"]), normalise(r["away_team"])
+        lookup[(h, a)] = r
+        lookup.setdefault((a, h), {**r, "home_goals": r["away_goals"],
+                                   "away_goals": r["home_goals"],
+                                   "home_team": r["away_team"],
+                                   "away_team": r["home_team"]})
 
     updated = []
     for m in match_data:
@@ -108,10 +189,18 @@ R32_MATCHES: list[tuple] = [
     ("2D", "2G"),           # M88
 ]
 
-# R16 pairings: indices into R32_MATCHES (0-based)
-R16_PAIRS = [(0, 1), (2, 3), (4, 5), (6, 7), (8, 9), (10, 11), (12, 13), (14, 15)]
-QF_PAIRS  = [(0, 1), (2, 3), (4, 5), (6, 7)]   # indices into R16 winners
-SF_PAIRS  = [(0, 1), (2, 3)]                     # indices into QF winners
+# R16 pairings: indices into R32_MATCHES (0-based; index k = match 73+k).
+# Official FIFA bracket (M89–M96):
+#   M89 = W74 v W77   M90 = W73 v W75   M91 = W76 v W78   M92 = W79 v W80
+#   M93 = W83 v W84   M94 = W81 v W82   M95 = W86 v W88   M96 = W85 v W87
+# NOT sequential winners — the bracket crosses pods.
+R16_PAIRS = [(1, 4), (0, 2), (3, 5), (6, 7), (10, 11), (8, 9), (13, 15), (12, 14)]
+# QF (M97–M100) as indices into R16 winners (index k = match 89+k):
+#   M97 = W89 v W90   M98 = W93 v W94   M99 = W91 v W92   M100 = W95 v W96
+QF_PAIRS  = [(0, 1), (4, 5), (2, 3), (6, 7)]
+# SF (M101–M102) as indices into QF winners (index k = match 97+k):
+#   M101 = W97 v W98   M102 = W99 v W100
+SF_PAIRS  = [(0, 1), (2, 3)]
 
 
 def parse_args() -> argparse.Namespace:
@@ -124,6 +213,8 @@ def parse_args() -> argparse.Namespace:
                    help="Use full PyMC MCMC posterior for BayesPoisson (slow, ~5min)")
     p.add_argument("--mcmc-draws", type=int, default=500)
     p.add_argument("--mcmc-tune",  type=int, default=250)
+    p.add_argument("--seed", type=int, default=42,
+                   help="RNG seed for the Monte Carlo simulation (reproducible runs)")
     return p.parse_args()
 
 
@@ -137,23 +228,13 @@ def train_model(
 ) -> tuple:
     if not quiet:
         print("Loading historical data...")
-    all_data = fetch_training_data(from_year=2010, friendly_weight=0.7)
+    _fw = _load_friendly_weight()
+    if not quiet:
+        print(f"  friendly_weight={_fw} (from cache)" if _TUNED_PARAMS_FILE.exists() else f"  friendly_weight={_fw}")
+    all_data = fetch_training_data(from_year=2010, friendly_weight=_fw)
 
     # Append actual WC 2026 results so Kalman EKF and BayesPoisson see them
-    # Only WC group stage matches (group A–L) — friendlies or warmups are excluded
-    actual = [r for r in load_actual_results()
-              if str(r.get("group", "")).upper() not in ("", "FRIENDLY", "WARMUP", "TEST")]
-    if actual:
-        actual_df = pd.DataFrame(actual)
-        actual_df["tournament"] = "FIFA World Cup"
-        actual_df["match_weight"] = 1.5
-        actual_df["neutral"] = True
-        for col in ["home_goals", "away_goals"]:
-            if col not in actual_df.columns:
-                actual_df[col] = 0
-        all_data = pd.concat([all_data, actual_df], ignore_index=True)
-        if not quiet:
-            print(f"  + {len(actual)} actual WC 2026 results added to training context")
+    all_data = append_actual_results(all_data, quiet=quiet)
 
     comp_mask = all_data["tournament"].str.lower().str.contains(
         "qualif|world cup|copa|euro|nations|africa|asian|gold cup", na=False
@@ -179,7 +260,8 @@ def train_model(
     xgb.fit(X.iloc[:cut], y.iloc[:cut], sample_weight=sw[:cut])
     xgb_proba_cal = xgb.predict_proba(cal_X)
     temp_cal = TemperatureScaling()
-    temp_cal.fit(xgb_proba_cal, cal_y)
+    # Weighted NLL: WC matches (w=1.5) count more than minor tournaments (0.6)
+    temp_cal.fit(xgb_proba_cal, cal_y, sample_weight=sw[cut:])
     if not quiet:
         print(f"  XGB temperature T={temp_cal.temperature:.3f}")
 
@@ -197,10 +279,13 @@ def train_model(
             print("Fitting Bayesian Poisson model (MAP)...")
         bp.fit(train_df.iloc[:cut])
 
-    # Ensemble: learn optimal blend on held-out calibration set
+    # Ensemble: learn optimal blend on held-out calibration set.
+    # α must be fitted on the SAME distribution it blends at predict time —
+    # i.e. temperature-scaled XGB probabilities, not raw ones.
     bp_proba_cal = _bp_proba_df(bp, train_df.iloc[cut:])
     ensemble = EnsembleModel()
-    ensemble.fit(xgb_proba_cal, bp_proba_cal, cal_y, context_X=cal_X)
+    ensemble.fit(temp_cal.transform(xgb_proba_cal), bp_proba_cal, cal_y,
+                 context_X=cal_X, sample_weight=sw[cut:])
 
     # Refit BP on full training data now that ensemble weight is fixed —
     # more data improves the goal-rate estimates used in prediction.
@@ -322,9 +407,16 @@ def simulate_goals(
     The direction (win/draw/loss) still comes from the full ensemble so XGBoost
     signal is preserved; only goal magnitude varies with the resampled λ.
     """
+    # Mean-preserving lognormal: E[LogNormal(m, s)] = exp(m + s²/2), so the
+    # location must be log(λ) − s²/2 or every goal rate inflates by e^{s²/2}
+    # (+2–13% at typical Kalman stds). Gates are per-side: a zero-uncertainty
+    # away λ must not be resampled just because the home side has uncertainty.
     if lam_h_log_std > 0.02:
-        lam_h = float(np.random.lognormal(np.log(max(lam_h, 1e-3)), lam_h_log_std))
-        lam_a = float(np.random.lognormal(np.log(max(lam_a, 1e-3)), lam_a_log_std))
+        lam_h = float(np.random.lognormal(
+            np.log(max(lam_h, 1e-3)) - 0.5 * lam_h_log_std ** 2, lam_h_log_std))
+    if lam_a_log_std > 0.02:
+        lam_a = float(np.random.lognormal(
+            np.log(max(lam_a, 1e-3)) - 0.5 * lam_a_log_std ** 2, lam_a_log_std))
 
     r = np.random.random()
     if r < p_home:
@@ -340,9 +432,16 @@ def simulate_goals(
 
 
 def group_standings(teams: list[str], results: list[dict]) -> list[dict]:
-    """Compute group table from simulated match results."""
+    """Compute group table from simulated match results.
+
+    Tiebreakers follow FIFA: points → GD → GF → head-to-head mini-table among
+    the tied teams (pts, GD, GF) → drawing of lots (random per simulation).
+    The previous (pts, gd, gf)-only sort resolved residual ties by Python's
+    stable sort, i.e. by group listing order — a systematic bias favouring
+    earlier-listed (often seeded) teams in exactly the tied cases that decide
+    third-place qualification.
+    """
     table: dict[str, dict] = {t: {"team": t, "pts": 0, "gf": 0, "ga": 0, "gd": 0, "played": 0} for t in teams}
-    h2h: dict[tuple, dict] = {}
 
     for r in results:
         h, a = r["home_team"], r["away_team"]
@@ -360,10 +459,35 @@ def group_standings(teams: list[str], results: list[dict]) -> list[dict]:
         else:
             table[a]["pts"] += 3
 
-    def sort_key(t: dict) -> tuple:
+    def key3(t: dict) -> tuple:
         return (-t["pts"], -t["gd"], -t["gf"])
 
-    return sorted(table.values(), key=sort_key)
+    rows = sorted(table.values(), key=key3)
+
+    # Resolve residual ties: H2H mini-table among tied teams, then lots.
+    out: list[dict] = []
+    for _, block_iter in itertools.groupby(rows, key=key3):
+        block = list(block_iter)
+        if len(block) > 1:
+            tied = {t["team"] for t in block}
+            mini = {t: [0, 0, 0] for t in tied}  # [pts, gd, gf] among tied teams
+            for r in results:
+                h, a = r["home_team"], r["away_team"]
+                if h in tied and a in tied:
+                    hg, ag = r["home_goals"], r["away_goals"]
+                    mini[h][1] += hg - ag; mini[h][2] += hg
+                    mini[a][1] += ag - hg; mini[a][2] += ag
+                    if hg > ag:
+                        mini[h][0] += 3
+                    elif hg == ag:
+                        mini[h][0] += 1; mini[a][0] += 1
+                    else:
+                        mini[a][0] += 3
+            lots = {t["team"]: np.random.random() for t in block}
+            block.sort(key=lambda t: (-mini[t["team"]][0], -mini[t["team"]][1],
+                                      -mini[t["team"]][2], lots[t["team"]]))
+        out.extend(block)
+    return out
 
 
 def simulate_group_stage(match_data: list[dict]) -> dict[str, list[dict]]:
@@ -405,63 +529,108 @@ def get_qualifiers(standings: dict[str, list[dict]]) -> dict:
             "pts": t["pts"], "gd": t["gd"], "gf": t["gf"]
         })
 
-    third_place_pool.sort(key=lambda x: (-x["pts"], -x["gd"], -x["gf"]))
+    # Random final tiebreak = drawing of lots (otherwise group-letter order
+    # systematically decides which tied third-place team qualifies).
+    third_place_pool.sort(key=lambda x: (-x["pts"], -x["gd"], -x["gf"], np.random.random()))
     best_8_thirds = {t["group"]: t["team"] for t in third_place_pool[:8]}
 
     return {"1": winners, "2": runners_up, "3": best_8_thirds}
 
 
-def assign_third(slot_groups: str, thirds: dict[str, str]) -> str | None:
-    """Pick best available 3rd-place team for a bracket slot from allowed groups."""
-    allowed = set(slot_groups)
-    for grp in sorted(thirds.keys()):
-        if grp in allowed and thirds[grp] is not None:
-            team = thirds[grp]
-            thirds[grp] = None
-            return team
-    # Fallback: pick any remaining 3rd-place team (shouldn't happen with valid bracket)
-    for grp in sorted(thirds.keys()):
-        if thirds[grp] is not None:
-            team = thirds[grp]
-            thirds[grp] = None
-            return team
-    return None
+def match_thirds(slot_allowed: list[set[str]], available: set[str]) -> list[str | None]:
+    """Assign qualified third-place groups to bracket slots — feasibly.
+
+    Backtracking bipartite matching (8 slots × 8 groups — trivial size).
+    Slots are processed most-constrained-first so a feasible assignment is
+    found whenever one exists. The previous greedy version consumed groups
+    alphabetically and could leave a later slot with no allowed group even
+    when a feasible assignment existed, silently violating FIFA constraints.
+    """
+    n = len(slot_allowed)
+    options = [sorted(s & available) for s in slot_allowed]
+    order = sorted(range(n), key=lambda i: len(options[i]))
+
+    assignment: list[str | None] = [None] * n
+
+    def bt(k: int, used: frozenset) -> bool:
+        if k == len(order):
+            return True
+        i = order[k]
+        for g in options[i]:
+            if g not in used:
+                assignment[i] = g
+                if bt(k + 1, used | {g}):
+                    return True
+                assignment[i] = None
+        return False
+
+    if not bt(0, frozenset()):
+        # No perfect matching (cannot happen with the official bracket sets,
+        # kept as a safety net): fall back to greedy + dump remaining.
+        used: set[str] = set()
+        for i in range(n):
+            pick = next((g for g in options[i] if g not in used), None)
+            if pick is None:
+                pick = next((g for g in sorted(available) if g not in used), None)
+            assignment[i] = pick
+            if pick:
+                used.add(pick)
+    return assignment
 
 
 def build_r32(qualifiers: dict) -> list[tuple[str, str]]:
     """Map group stage positions to R32 matchups."""
     ones = qualifiers["1"]    # {group: team}
     twos = qualifiers["2"]
-    thirds = dict(qualifiers["3"])  # copy so we can consume
+    thirds = qualifiers["3"]  # {group: team} — the 8 qualified third-placers
+
+    # Collect third-place slots in bracket order, then solve the matching.
+    slot_pos: list[tuple[int, int]] = []   # (match_idx, side)
+    slot_allowed: list[set[str]] = []
+    for i, (hs, aw) in enumerate(R32_MATCHES):
+        if hs.startswith("3rd"):
+            slot_pos.append((i, 0)); slot_allowed.append(set(hs.split("_")[1]))
+        if aw.startswith("3rd"):
+            slot_pos.append((i, 1)); slot_allowed.append(set(aw.split("_")[1]))
+    assigned = match_thirds(slot_allowed, set(thirds.keys()))
+    third_by_pos = {pos: (thirds.get(g) if g else None)
+                    for pos, g in zip(slot_pos, assigned)}
 
     bracket = []
-    for home_slot, away_slot in R32_MATCHES:
+    for i, (home_slot, away_slot) in enumerate(R32_MATCHES):
         if home_slot.startswith("1"):
             home = ones[home_slot[1]]
         elif home_slot.startswith("2"):
             home = twos[home_slot[1]]
         else:
-            home = assign_third(home_slot.split("_")[1], thirds) or "Unknown"
+            home = third_by_pos.get((i, 0)) or "Unknown"
 
         if away_slot.startswith("1"):
             away = ones[away_slot[1]]
         elif away_slot.startswith("2"):
             away = twos[away_slot[1]]
         else:
-            away = assign_third(away_slot.split("_")[1], thirds) or "Unknown"
+            away = third_by_pos.get((i, 1)) or "Unknown"
 
         bracket.append((home, away))
     return bracket
 
 
 def ko_winner(home: str, away: str, predictor) -> str:
-    """Simulate a knockout match — draw goes to ET/penalties (coin flip)."""
+    """Simulate a knockout match — 90' draw resolved by ET/penalties.
+
+    ET/pens follow relative strength rather than a fair coin: conditioned on
+    the 90' being level, the stronger side still wins more often in extra
+    time (penalties are closer to even, so the blend slightly shrinks the
+    edge toward 0.5 via the p_h/(p_h+p_a) renormalisation).
+    """
     p_h, p_d, p_a = predictor(home, away)
     r = np.random.random()
     if r < p_h:
         return home
     elif r < p_h + p_d:
-        return home if np.random.random() < 0.5 else away  # pens
+        p_win = p_h / max(p_h + p_a, 1e-10)
+        return home if np.random.random() < p_win else away
     else:
         return away
 
@@ -651,10 +820,19 @@ def predict_single_match(
     bp_row = pd.DataFrame([bp_p], columns=["home_win", "draw", "away_win"])
     ens    = ensemble.predict_proba(xgb_p.reset_index(drop=True), bp_row, context_X=X.reset_index(drop=True))
 
-    ph = float(ens["home_win"].iloc[0])
-    pd_ = float(ens["draw"].iloc[0])
-    pa = float(ens["away_win"].iloc[0])
+    ens_ph = float(ens["home_win"].iloc[0])
+    ens_pd = float(ens["draw"].iloc[0])
+    ens_pa = float(ens["away_win"].iloc[0])
     lam_h, lam_a = bp.get_lambdas(normalise(home), normalise(away), neutral=True)
+
+    # Apply same post-processing as predict_group_stage (market blend + quality nudge + absence)
+    from football_predictor.models.wc_context import build_wc_context, apply_to_match
+    ctx = build_wc_context(row, all_data)
+    ctx_row = ctx.iloc[0].to_dict() if len(ctx) > 0 else {}
+    ph, pd_, pa, lam_h, lam_a = apply_to_match(
+        lam_h, lam_a, ens_ph, ens_pd, ens_pa, ctx_row,
+        home_team=home, away_team=away,
+    )
 
     # Most likely scorelines (Poisson mass)
     from scipy.stats import poisson as sp_poisson
@@ -777,7 +955,7 @@ def main() -> None:
                     "tournament": "FIFA World Cup", "match_weight": 1.5,
                     "home_goals": 0, "away_goals": 0,
                 })
-    from football_predictor.models.wc_context import build_wc_context, quality_nudge
+    from football_predictor.models.wc_context import build_wc_context, quality_nudge, absence_adjust
 
     pair_df = pd.DataFrame(pair_rows)
     X_pairs, _ = build_feature_matrix(pair_df, DEFAULT_FEATURE_MODULES, context=all_data)
@@ -799,11 +977,32 @@ def main() -> None:
         p_h, p_d, p_a = quality_nudge(
             float(p["home_win"]), float(p["draw"]), float(p["away_win"]), ctx_row
         )
+        # Injury/suspension penalty applies in knockouts too (group-stage
+        # matches get it via apply_to_match; KO pairs previously skipped it).
+        p_h, p_d, p_a = absence_adjust(p_h, p_d, p_a, row["home_team"], row["away_team"])
         prob_cache[(row["home_team"], row["away_team"])] = (p_h, p_d, p_a)
+
+    # Symmetrise: XGB features are not slot-symmetric, so P(A beats B | A in
+    # the home slot) ≠ 1 − P(draw) − P(B beats A | B in the home slot). Average
+    # the two orientations so knockout probabilities don't depend on which
+    # arbitrary bracket slot a team lands in (all KO venues are neutral).
+    for home, away in list(prob_cache.keys()):
+        if home < away and (away, home) in prob_cache:
+            f, r = prob_cache[(home, away)], prob_cache[(away, home)]
+            p_h = (f[0] + r[2]) / 2.0
+            p_d = (f[1] + r[1]) / 2.0
+            p_a = (f[2] + r[0]) / 2.0
+            s = p_h + p_d + p_a
+            prob_cache[(home, away)] = (p_h / s, p_d / s, p_a / s)
+            prob_cache[(away, home)] = (p_a / s, p_d / s, p_h / s)
 
     if not args.quiet:
         print(f"  {len(prob_cache)} pairs cached")
-        print(f"\nRunning {args.sims:,} Monte Carlo simulations...")
+        print(f"\nRunning {args.sims:,} Monte Carlo simulations (seed={args.seed})...")
+
+    # Reproducibility: the simulation uses the global np.random stream
+    # (simulate_goals, ko_winner, tiebreak lots) — seed it once here.
+    np.random.seed(args.seed)
 
     def ko_predictor(home: str, away: str) -> tuple[float, float, float]:
         return prob_cache.get((home, away), (0.4, 0.2, 0.4))

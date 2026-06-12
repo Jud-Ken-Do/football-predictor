@@ -78,21 +78,36 @@ class TemperatureScaling:
     def __init__(self) -> None:
         self.temperature: float = 1.0
 
-    def fit(self, proba: pd.DataFrame, y_true: pd.Series) -> "TemperatureScaling":
+    def fit(
+        self,
+        proba: pd.DataFrame,
+        y_true: pd.Series,
+        sample_weight: np.ndarray | None = None,
+    ) -> "TemperatureScaling":
+        """Fit T by minimising NLL on the calibration set.
+
+        Args:
+            proba:         Uncalibrated probability DataFrame.
+            y_true:        Integer outcome series (0/1/2).
+            sample_weight: Optional per-row weights (e.g. match-type weights);
+                           when provided, minimises weighted NLL
+                           -(w * log p_true).sum() / w.sum().
+        """
         log_p = np.log(np.maximum(proba.values, 1e-10))
         y = y_true.values
+        w = None
+        if sample_weight is not None:
+            w = np.asarray(sample_weight, dtype=float)
 
         def nll(T: float) -> float:
             scaled = log_p / T
             scaled -= scaled.max(axis=1, keepdims=True)
             exp_s = np.exp(scaled)
             p_cal = exp_s / exp_s.sum(axis=1, keepdims=True)
-            total = 0.0
-            for i in range(len(OUTCOMES)):
-                mask = y == i
-                if mask.any():
-                    total -= np.log(np.maximum(p_cal[mask, i], 1e-10)).sum()
-            return total
+            log_p_true = np.log(np.maximum(p_cal[np.arange(len(y)), y], 1e-10))
+            if w is not None:
+                return float(-(w * log_p_true).sum() / w.sum())
+            return float(-log_p_true.sum())
 
         res = minimize_scalar(nll, bounds=(0.1, 10.0), method="bounded")
         self.temperature = float(res.x)

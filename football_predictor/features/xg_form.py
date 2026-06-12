@@ -110,17 +110,33 @@ class XGFormFeatures(FeatureModule):
         tl_h = self._timelines.get(home, [])
         tl_a = self._timelines.get(away, [])
 
-        h5  = _rolling_mean(tl_h, target, 5,  1) or _DEFAULT_XG
-        h10 = _rolling_mean(tl_h, target, 10, 1) or _DEFAULT_XG
-        ha5  = _rolling_mean(tl_h, target, 5,  2) or _DEFAULT_XGA
-        ha10 = _rolling_mean(tl_h, target, 10, 2) or _DEFAULT_XGA
+        # Explicit `is None` checks: `or` would treat a legitimate 0.0 mean
+        # as missing and silently substitute the imputed default.
+        h5_raw   = _rolling_mean(tl_h, target, 5,  1)
+        h10_raw  = _rolling_mean(tl_h, target, 10, 1)
+        ha5_raw  = _rolling_mean(tl_h, target, 5,  2)
+        ha10_raw = _rolling_mean(tl_h, target, 10, 2)
 
-        a5  = _rolling_mean(tl_a, target, 5,  1) or _DEFAULT_XG
-        a10 = _rolling_mean(tl_a, target, 10, 1) or _DEFAULT_XG
-        aa5  = _rolling_mean(tl_a, target, 5,  2) or _DEFAULT_XGA
-        aa10 = _rolling_mean(tl_a, target, 10, 2) or _DEFAULT_XGA
+        a5_raw   = _rolling_mean(tl_a, target, 5,  1)
+        a10_raw  = _rolling_mean(tl_a, target, 10, 1)
+        aa5_raw  = _rolling_mean(tl_a, target, 5,  2)
+        aa10_raw = _rolling_mean(tl_a, target, 10, 2)
 
-        available = 1.0 if (tl_h and tl_a) else 0.0
+        h5   = h5_raw   if h5_raw   is not None else _DEFAULT_XG
+        h10  = h10_raw  if h10_raw  is not None else _DEFAULT_XG
+        ha5  = ha5_raw  if ha5_raw  is not None else _DEFAULT_XGA
+        ha10 = ha10_raw if ha10_raw is not None else _DEFAULT_XGA
+
+        a5   = a5_raw   if a5_raw   is not None else _DEFAULT_XG
+        a10  = a10_raw  if a10_raw  is not None else _DEFAULT_XG
+        aa5  = aa5_raw  if aa5_raw  is not None else _DEFAULT_XGA
+        aa10 = aa10_raw if aa10_raw is not None else _DEFAULT_XGA
+
+        # xg_available must reflect whether xG entries actually PRECEDE this
+        # match date for both teams — not merely that timelines exist.
+        # Qualifier xG starts ~2023, so older training rows would otherwise
+        # carry available=1.0 with every feature at the imputed default.
+        available = 1.0 if (h10_raw is not None and a10_raw is not None) else 0.0
 
         return {
             "xg_home_avg5":    h5,

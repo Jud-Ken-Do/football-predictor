@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import csv
 import importlib
+import json
 import math
 import subprocess
 import sys
@@ -67,7 +68,7 @@ def _tick(t0: float) -> float:
 _FETCHERS = [
     ("API form (last 20 matches per team)",  "fetch_api_form.py",       ROOT / "data" / "api_form_cache.json"),
     ("Transfermarkt squad values",           "fetch_transfermarkt.py",  ROOT / "data" / "transfermarkt_wc2026.json"),
-    ("Squad injuries & suspensions",         "fetch_wc2026_injuries.py", ROOT / "data" / "injuries_cache.json"),
+    ("Squad injuries & suspensions",         "fetch_wc2026_injuries.py", ROOT / "data" / "wc2026_injuries_cache.json"),
 ]
 
 
@@ -108,6 +109,10 @@ def step_load(from_year: int = 2010, friendly_weight: float = 0.7) -> tuple:
 
     t0 = time.time()
     all_data = fetch_training_data(from_year=from_year, friendly_weight=friendly_weight)
+    # Recorded WC 2026 results (deduped against the source) so Kalman/Elo/BP
+    # update from live tournament matches — same path as predict_wc2026.py.
+    from scripts.predict_wc2026 import append_actual_results
+    all_data = append_actual_results(all_data, quiet=True)
     comp_mask = all_data["tournament"].str.lower().str.contains(
         "qualif|world cup|copa|euro|nations|africa|asian|gold cup", na=False
     )
@@ -170,7 +175,8 @@ def step_train(X, y, sw, train_df, use_mcmc: bool, mcmc_draws: int, mcmc_tune: i
     xgb.fit(X.iloc[:cut], y.iloc[:cut], sample_weight=sw[:cut])
     xgb_proba_cal = xgb.predict_proba(cal_X)
     temp_cal = TemperatureScaling()
-    temp_cal.fit(xgb_proba_cal, cal_y)
+    # Weighted NLL: WC matches (w=1.5) count more than minor tournaments (0.6)
+    temp_cal.fit(xgb_proba_cal, cal_y, sample_weight=sw[cut:])
     print(f"  XGB done  T={temp_cal.temperature:.3f} ({_tick(t0):.1f}s)")
 
     t1 = time.time()
@@ -197,7 +203,10 @@ def step_train(X, y, sw, train_df, use_mcmc: bool, mcmc_draws: int, mcmc_tune: i
 
     bp_proba_cal = _bp_proba(train_df.iloc[cut:])
     ensemble = EnsembleModel()
-    ensemble.fit(xgb_proba_cal, bp_proba_cal, cal_y, context_X=cal_X)
+    # α must be fitted on temperature-scaled XGB probs — the same distribution
+    # it blends at predict time.
+    ensemble.fit(temp_cal.transform(xgb_proba_cal), bp_proba_cal, cal_y,
+                 context_X=cal_X, sample_weight=sw[cut:])
     print(f"  Ensemble  ᾱ={ensemble.xgb_weight:.2f} XGB + {ensemble.bp_weight:.2f} BP (context-adaptive)")
 
     # Refit BP on full data now ensemble weight is locked; then estimate DC ρ
@@ -280,7 +289,7 @@ def step_simulate(match_data: list[dict], n_sims: int, xgb, temp_cal, bp, ensemb
          "match_weight": 1.5, "home_goals": 0, "away_goals": 0}
         for h in all_teams for a in all_teams if h != a
     ]
-    from football_predictor.models.wc_context import build_wc_context, quality_nudge
+    from football_predictor.models.wc_context import build_wc_context, quality_nudge, absence_adjust
 
     pair_df = pd.DataFrame(pair_rows)
     X_pairs, _ = build_feature_matrix(pair_df, DEFAULT_FEATURE_MODULES, context=all_data)
@@ -299,8 +308,22 @@ def step_simulate(match_data: list[dict], n_sims: int, xgb, temp_cal, bp, ensemb
         p_h, p_d, p_a = quality_nudge(
             float(p["home_win"]), float(p["draw"]), float(p["away_win"]), ctx_row
         )
+        # Injury penalty applies in knockouts too (matches predict_wc2026.py).
+        p_h, p_d, p_a = absence_adjust(p_h, p_d, p_a, row["home_team"], row["away_team"])
         prob_cache[(row["home_team"], row["away_team"])] = (p_h, p_d, p_a)
-    _ok(f"{len(prob_cache):,} pair probabilities pre-computed", _tick(t0))
+
+    # Symmetrise both orientations — XGB features aren't slot-symmetric and
+    # all KO venues are neutral (matches predict_wc2026.py).
+    for home, away in list(prob_cache.keys()):
+        if home < away and (away, home) in prob_cache:
+            f, r = prob_cache[(home, away)], prob_cache[(away, home)]
+            p_h = (f[0] + r[2]) / 2.0
+            p_d = (f[1] + r[1]) / 2.0
+            p_a = (f[2] + r[0]) / 2.0
+            s = p_h + p_d + p_a
+            prob_cache[(home, away)] = (p_h / s, p_d / s, p_a / s)
+            prob_cache[(away, home)] = (p_a / s, p_d / s, p_h / s)
+    _ok(f"{len(prob_cache):,} pair probabilities pre-computed (symmetrised)", _tick(t0))
 
     # Monte Carlo
     from scripts.predict_wc2026 import simulate_tournament
@@ -336,10 +359,12 @@ def step_simulate(match_data: list[dict], n_sims: int, xgb, temp_cal, bp, ensemb
 
 # ── Step: Backtest ─────────────────────────────────────────────────────────────
 
-def step_backtest(years: list[int]) -> None:
+def step_backtest(years: list[int], friendly_weight: float = 0.7) -> None:
+    # Evaluate the DEPLOYED configuration — previously this ran with the
+    # default weight while production trained with the cached one.
     from scripts.backtest import run_backtest
     for year in years:
-        run_backtest(year, include_shap=False)
+        run_backtest(year, include_shap=False, friendly_weight=friendly_weight)
 
 
 # ── Output ─────────────────────────────────────────────────────────────────────
@@ -350,7 +375,7 @@ def _save_raw_predictions(match_data: list[dict]) -> Path:
     score1/score2 = floor(bp_lam_home/away), the mode of each team's goal distribution.
     Also includes win/draw/loss probabilities for reference.
     """
-    template_path = ROOT / "output_template 1.csv"
+    template_path = ROOT / "templates" / "output_template.csv"
     with open(template_path, newline="") as f:
         template_rows = {
             int(r["match_id"]): r
@@ -392,7 +417,10 @@ def _save_raw_predictions(match_data: list[dict]) -> Path:
         s1, s2 = (s_h, s_a) if m["home_team"] == t1 else (s_a, s_h)
         p_h, p_d, p_a = m["p_home"], m["p_draw"], m["p_away"]
         if m["home_team"] != t1:
+            # Swap λs along with scores/probs — previously the λ columns stayed
+            # model-oriented, contradicting the other columns in the same row.
             p_h, p_a = p_a, p_h
+            lam_h, lam_a = lam_a, lam_h
 
         rows.append({
             "match_id": mid, "group": tr["group"],
@@ -463,6 +491,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--tune",     action="store_true",
                    help="Tune XGBoost hyperparameters via Optuna before training (requires: pip install optuna)")
     p.add_argument("--tune-trials", type=int, default=60, help="Number of Optuna trials (default 60)")
+    p.add_argument("--seed", type=int, default=42,
+                   help="RNG seed for the Monte Carlo simulation (reproducible runs)")
     return p.parse_args()
 
 
@@ -474,8 +504,26 @@ def main() -> None:
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  sims={args.sims:,}  |  mcmc={args.mcmc}")
 
     # ── FRIENDLY WEIGHT ────────────────────────────────────────────────────────
-    friendly_weight = args.friendly_weight if args.friendly_weight is not None else 0.7
-    print(f"\n  friendly_weight={friendly_weight}")
+    if args.friendly_weight is not None:
+        friendly_weight = args.friendly_weight
+        print(f"\n  friendly_weight={friendly_weight} (CLI override)")
+    else:
+        _tp = ROOT / "data" / "tuned_params.json"
+        cached = None
+        try:
+            cached = json.loads(_tp.read_text()).get("friendly_weight") if _tp.exists() else None
+        except Exception:
+            cached = None
+        if args.retune or cached is None:
+            # Grid search (auto-tunes on first run / forced via --retune);
+            # tune_friendly_weight persists the result to the cache.
+            label = "re-tuning" if args.retune else "first run — tuning"
+            print(f"\n  friendly_weight: {label} (grid search over WC backtests, slow)...")
+            from scripts.backtest import tune_friendly_weight
+            friendly_weight = tune_friendly_weight([2014, 2018, 2022])
+        else:
+            friendly_weight = cached
+            print(f"\n  friendly_weight={friendly_weight} (from cache)")
 
     # ── FETCH ──────────────────────────────────────────────────────────────────
     if not args.no_fetch:
@@ -538,7 +586,9 @@ def main() -> None:
     print(f"\n{'─'*_W}")
     print(f"  STEP 6 — MONTE CARLO SIMULATION ({args.sims:,} runs)")
     print(f"{'─'*_W}")
-    _step(1, 1, "SIM", f"Running {args.sims:,} tournament simulations...")
+    _step(1, 1, "SIM", f"Running {args.sims:,} tournament simulations (seed={args.seed})...")
+    import numpy as _np
+    _np.random.seed(args.seed)  # reproducible Monte Carlo (global stream)
     cum_counts = step_simulate(match_data, args.sims, xgb, temp_cal, bp, ensemble, all_data)
 
     # ── OUTPUT ─────────────────────────────────────────────────────────────────
@@ -555,7 +605,7 @@ def main() -> None:
         print(f"\n{'─'*_W}")
         print("  STEP 8 — BACKTEST (WC 2014 + 2018 + 2022)")
         print(f"{'─'*_W}")
-        step_backtest([2014, 2018, 2022])
+        step_backtest([2014, 2018, 2022], friendly_weight=friendly_weight)
 
     # ── DONE ───────────────────────────────────────────────────────────────────
     elapsed = _tick(t_total)

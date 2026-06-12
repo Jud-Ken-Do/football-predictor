@@ -75,6 +75,22 @@ def _default_state() -> dict:
     return {"x": np.zeros(2), "P": _P0_DIAG * np.eye(2)}
 
 
+def _data_fingerprint(df: pd.DataFrame) -> tuple:
+    """Content-based dataset key for caching.
+
+    `id(data)` is NOT a safe cache key: CPython recycles object ids after
+    garbage collection, so a long session can silently match a stale entry
+    and reuse the wrong tuned q (or skip a needed cache rebuild). The
+    fingerprint changes whenever the match set meaningfully changes.
+    """
+    return (
+        len(df),
+        str(df["date"].min()),
+        str(df["date"].max()),
+        int(df["home_goals"].sum() + df["away_goals"].sum()),
+    )
+
+
 def _g_func(phi: float) -> float:
     return 1.0 / math.sqrt(1.0 + 3.0 * phi * phi / (math.pi * math.pi))
 
@@ -85,19 +101,29 @@ def _ekf_obs_update(
     innovation: float,
     h_vec: np.ndarray,
     match_weight: float = 1.0,
+    extra_obs_var: float = 0.0,
 ) -> None:
     """In-place EKF observation update (Joseph form for numerical stability).
 
     match_weight scales measurement trust: WC (1.5×) → lower R → larger Kalman gain.
     Friendly (0.3×) → higher R → smaller gain. Equivalent to R = Poisson_var / weight.
+
+    extra_obs_var: the OTHER team's contribution to the innovation covariance
+    (λ²·P_opponent). The observation y ~ Poisson(λ(att_self, def_opp)) depends
+    on both teams' states; ignoring the opponent's variance makes S too small,
+    gains too large, and P shrink too fast → systematic overconfidence in the
+    kalman_*_std features that gate the ensemble α.
     """
     P = state["P"]
     PH = P @ h_vec
-    S = float(h_vec @ PH) + max(lam, 1e-4) / max(match_weight, 1e-3)
+    # Effective R: same value MUST be used in the gain (via S) and in the
+    # Joseph covariance term — mixing R=λ/w with R=λ mis-states the posterior P.
+    r_eff = max(lam, 1e-4) / max(match_weight, 1e-3) + extra_obs_var
+    S = float(h_vec @ PH) + r_eff
     K = PH / S
     state["x"] = state["x"] + K * innovation
     I_KH = np.eye(2) - np.outer(K, h_vec)
-    state["P"] = I_KH @ P @ I_KH.T + max(lam, 1e-4) * np.outer(K, K)
+    state["P"] = I_KH @ P @ I_KH.T + r_eff * np.outer(K, K)
     state["P"][0, 0] = max(state["P"][0, 0], _P_FLOOR)
     state["P"][1, 1] = max(state["P"][1, 1], _P_FLOOR)
 
@@ -115,13 +141,22 @@ def _ekf_match_update(
 
     lam_h = max(math.exp(_MU + h_state["x"][0] + a_state["x"][1] + ha), 1e-4)
     inn_h = home_goals - lam_h
-    _ekf_obs_update(h_state, lam_h, inn_h, np.array([lam_h, 0.0]), match_weight)
-    _ekf_obs_update(a_state, lam_h, inn_h, np.array([0.0, lam_h]), match_weight)
+    # Opponent variance contributions captured BEFORE either side updates.
+    var_h_att = lam_h * lam_h * float(h_state["P"][0, 0])
+    var_a_def = lam_h * lam_h * float(a_state["P"][1, 1])
+    _ekf_obs_update(h_state, lam_h, inn_h, np.array([lam_h, 0.0]), match_weight,
+                    extra_obs_var=var_a_def)
+    _ekf_obs_update(a_state, lam_h, inn_h, np.array([0.0, lam_h]), match_weight,
+                    extra_obs_var=var_h_att)
 
     lam_a = max(math.exp(_MU + a_state["x"][0] + h_state["x"][1]), 1e-4)
     inn_a = away_goals - lam_a
-    _ekf_obs_update(a_state, lam_a, inn_a, np.array([lam_a, 0.0]), match_weight)
-    _ekf_obs_update(h_state, lam_a, inn_a, np.array([0.0, lam_a]), match_weight)
+    var_a_att = lam_a * lam_a * float(a_state["P"][0, 0])
+    var_h_def = lam_a * lam_a * float(h_state["P"][1, 1])
+    _ekf_obs_update(a_state, lam_a, inn_a, np.array([lam_a, 0.0]), match_weight,
+                    extra_obs_var=var_h_def)
+    _ekf_obs_update(h_state, lam_a, inn_a, np.array([0.0, lam_a]), match_weight,
+                    extra_obs_var=var_a_att)
 
 
 def _run_rts(team_hist: dict[str, list[dict]]) -> None:
@@ -141,7 +176,10 @@ def _run_rts(team_hist: dict[str, list[dict]]) -> None:
             try:
                 G = P_upd_i @ np.linalg.solve(P_pred_i1.T, np.eye(2)).T
             except np.linalg.LinAlgError:
-                G = P_upd_i / (P_pred_i1 + 1e-8 * np.eye(2))
+                # Regularised matrix inverse — element-wise division here is
+                # mathematically meaningless and produced inf on zero
+                # off-diagonals, poisoning the EM-tuned q.
+                G = P_upd_i @ np.linalg.inv(P_pred_i1 + 1e-8 * np.eye(2))
 
             hist[i]["G"] = G  # stored for EM cross-covariance
 
@@ -196,8 +234,8 @@ class KalmanStrengthFeatures(FeatureModule):
 
     # Class-level cache so EM runs once per dataset even across multiple instances
     # (build_feature_matrix creates fresh instances for train and test calls).
-    # Key: (id(data), len(data)) — safe within a session since the context
-    # DataFrame is never garbage-collected between the two build calls.
+    # Key: content fingerprint (see _data_fingerprint) — id(data) was unsafe
+    # because object ids are recycled after garbage collection.
     _EM_Q_CACHE: dict[tuple, float] = {}
     _LAST_TUNED_Q: float = _Q_PER_YEAR  # updated after each EM run; read by BayesPoisson
 
@@ -218,7 +256,8 @@ class KalmanStrengthFeatures(FeatureModule):
         self._states: dict[str, dict] = {}
         self._snapshots: dict[str, dict[str, dict]] = {}
         self._smoothed_snapshots: dict[str, dict[str, dict]] = {}
-        self._data_id: Optional[int] = None
+        self._last_date: dict[str, pd.Timestamp] = {}  # team -> last match date
+        self._data_id: Optional[tuple] = None  # content fingerprint, not id()
 
     # ── FeatureModule interface ────────────────────────────────────────────────
 
@@ -228,17 +267,40 @@ class KalmanStrengthFeatures(FeatureModule):
     def transform(self, match: pd.Series, data: pd.DataFrame) -> dict[str, float]:
         self._ensure_cache(data)
 
-        date_str = str(pd.Timestamp(match["date"]).date())
+        target = pd.Timestamp(match["date"])
+        date_str = str(target.date())
         home, away = match["home_team"], match["away_team"]
         is_neutral = bool(match.get("neutral", True))
 
         if self._use_smoothed and date_str in self._smoothed_snapshots:
             snap = self._smoothed_snapshots[date_str]
         else:
-            snap = self._snapshots.get(date_str, self._states)
+            # Empty default (not self._states) so teams without a snapshot on
+            # this date go through the aging fallback below.
+            snap = self._snapshots.get(date_str, {})
 
-        h = snap.get(home) or self._states.get(home) or _default_state()
-        a = snap.get(away) or self._states.get(away) or _default_state()
+        def _state_for(team: str) -> dict:
+            s = snap.get(team)
+            if s is not None:
+                return s
+            s = self._states.get(team)
+            if s is None:
+                return _default_state()
+            # Future-fixture fallback: the stored final state carries P frozen
+            # at the team's LAST match. Apply the time update q²·Δt·I forward
+            # to the fixture date so kalman_*_std reflects predictive
+            # uncertainty. Copy — never mutate the stored state.
+            last = self._last_date.get(team)
+            if last is None:
+                return {"x": s["x"].copy(), "P": s["P"].copy()}
+            dt_years = max((target - last).days, 0) / _DAYS_PER_YEAR
+            return {
+                "x": s["x"].copy(),
+                "P": s["P"] + (self._q_per_year ** 2) * dt_years * np.eye(2),
+            }
+
+        h = _state_for(home)
+        a = _state_for(away)
 
         ha = 0.0 if is_neutral else _HOME_ADV
         lam_h = math.exp(_MU + h["x"][0] + a["x"][1] + ha)
@@ -278,9 +340,12 @@ class KalmanStrengthFeatures(FeatureModule):
     # ── Cache construction ─────────────────────────────────────────────────────
 
     def _ensure_cache(self, data: pd.DataFrame) -> None:
-        if self._data_id == id(data):
+        # Content fingerprint instead of id(data): recycled object ids could
+        # wrongly skip a rebuild when a different DataFrame reuses an address.
+        fingerprint = _data_fingerprint(data)
+        if self._data_id == fingerprint:
             return
-        self._data_id = id(data)
+        self._data_id = fingerprint
         if self._tune_q and not self._tuned:
             self._run_em(data)
             self._tuned = True
@@ -307,12 +372,6 @@ class KalmanStrengthFeatures(FeatureModule):
             date_str = str(date.date())
             all_teams = set(group["home_team"]) | set(group["away_team"])
 
-            snapshots[date_str] = {
-                t: {"x": states[t]["x"].copy(), "P": states[t]["P"].copy()}
-                if t in states else _default_state()
-                for t in all_teams
-            }
-
             for team in all_teams:
                 if team not in states:
                     states[team] = _default_state()
@@ -330,6 +389,15 @@ class KalmanStrengthFeatures(FeatureModule):
                         "x_pred": x_pred,
                         "P_pred": P_pred.copy(),
                     })
+
+            # Snapshot AFTER the time update (P += q²·Δt·I) so training rows
+            # see the PREDICTIVE uncertainty as of this match date — not P
+            # frozen at the team's previous match, which understates std for
+            # teams returning from long gaps.
+            snapshots[date_str] = {
+                t: {"x": states[t]["x"].copy(), "P": states[t]["P"].copy()}
+                for t in all_teams
+            }
 
             for _, row in group.iterrows():
                 _ekf_match_update(
@@ -358,6 +426,15 @@ class KalmanStrengthFeatures(FeatureModule):
             df, record_hist=self._use_smoothed
         )
 
+        # Record each team's last match date so transform() can age the
+        # frozen final-state P forward to a future fixture date (W12).
+        last: dict[str, pd.Timestamp] = {}
+        for col in ("home_team", "away_team"):
+            for team, d in df.groupby(col)["date"].max().items():
+                if team not in last or d > last[team]:
+                    last[team] = d
+        self._last_date = last
+
         if self._use_smoothed and team_hist is not None:
             _run_rts(team_hist)
             self._build_smoothed_snapshots(team_hist)
@@ -379,9 +456,13 @@ class KalmanStrengthFeatures(FeatureModule):
         Uses a class-level cache so EM runs at most once per unique dataset
         even when multiple instances are created for the same context data.
         """
-        cache_key = (id(data), len(data))
+        cache_key = _data_fingerprint(data)
         if cache_key in KalmanStrengthFeatures._EM_Q_CACHE:
             self._q_per_year = KalmanStrengthFeatures._EM_Q_CACHE[cache_key]
+            # Keep the class-level q in sync on cache HIT too — otherwise
+            # get_last_tuned_q() is ordering-dependent and BayesPoisson can
+            # derive dataset A's half-life from dataset B's tuned q.
+            KalmanStrengthFeatures._LAST_TUNED_Q = self._q_per_year
             return
 
         for _ in range(max_iter):

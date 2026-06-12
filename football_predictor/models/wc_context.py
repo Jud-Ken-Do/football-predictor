@@ -17,19 +17,20 @@ are zero for all historical rows (covariate shift).  Applied in two stages:
 
   2. quality_nudge(p_h, p_d, p_a, ctx) → adjusted (p_h, p_d, p_a)
      Small log-odds shift from sofifa overall rating diff and api_form
-     weighted points diff.  Keeps the draw probability proportional.
+     weighted points diff.  p_draw is held fixed while home/away mass is
+     reallocated by the log-odds shift, then all three renormalised.
 """
 from __future__ import annotations
 
 import json
 import math
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
 
 _INJURY_FILE = Path(__file__).resolve().parents[2] / "data" / "wc2026_player_injuries.json"
 _ABSENCE_WEIGHT: float = 0.20   # max log-odds shift when a team's entire squad is absent
-_INJURY_ACTIVE_CUTOFF = "2026-06-11"  # tournament start — injuries must overlap with this
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
 
@@ -47,11 +48,15 @@ _QUALITY_W: float = 0.12
 # Sofifa normalisation: typical max diff in overall rating between WC teams.
 _SOFIFA_NORM: float = 20.0
 
-# api_form normalisation: max weighted pts diff per game across WC teams.
-_API_FORM_NORM: float = 1.5
+# api_form normalisation: max weighted pts diff over last 10 matches across WC teams.
+_API_FORM_NORM: float = 15.0
 
 # Poisson sum cap for probability recompute
 _MAX_GOALS: int = 10
+
+# Market odds blend weight: fraction of market-implied λ to mix into model λ.
+# 0.20 = trust market for 20% of expected goals; rest stays with our model.
+_MARKET_BLEND: float = 0.20
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -114,7 +119,8 @@ def quality_nudge(
 ) -> tuple[float, float, float]:
     """Shift home/away win log-odds by a small sofifa + api_form quality signal.
 
-    Draw probability stays proportional to the home+away total.
+    p_draw is held fixed while home/away mass is reallocated by the log-odds
+    shift, then all three renormalised.
     """
     sofifa_diff = ctx.get("sofifa_diff_overall", 0.0) / _SOFIFA_NORM
     form_diff = ctx.get("api_form_diff_weighted_pts", 0.0) / _API_FORM_NORM
@@ -123,6 +129,8 @@ def quality_nudge(
     if abs(q) < 1e-6:
         return p_h, p_d, p_a
 
+    p_h = max(p_h, 0.0)
+    p_a = max(p_a, 0.0)
     logit = math.log((p_h + 1e-10) / (p_a + 1e-10)) + _QUALITY_W * q
     ratio = math.exp(logit)
     ha_sum = p_h + p_a
@@ -164,15 +172,77 @@ def _absent_quality_fraction(team: str) -> float:
     if total_mv <= 0:
         return 0.0
 
+    # NOTE: using the real wall-clock date is correct for live prediction, but
+    # would be wrong in a backtest/replay context (absences should then be
+    # evaluated as of the simulated match date, not today).
+    today = date.today().isoformat()
     absent_mv = 0.0
     for p in players:
         for inj in p.get("injuries", []):
             until = inj.get("until")
-            if until and until >= _INJURY_ACTIVE_CUTOFF:
+            if until and until >= today:
                 absent_mv += p.get("market_value_m", 0.0)
                 break  # count each player at most once
 
     return min(absent_mv / total_mv, 1.0)
+
+
+def _invert_over25(p_over: float) -> float:
+    """Binary search for λ s.t. P(Poisson(λ) > 2.5) = p_over."""
+    lo, hi = 0.1, 9.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        p_under = math.exp(-mid) * (1 + mid + mid ** 2 / 2)
+        if (1 - p_under) < p_over:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def market_odds_adjust(
+    lam_h: float,
+    lam_a: float,
+    ctx: dict[str, float],
+) -> tuple[float, float]:
+    """Blend model λ with market-implied λ derived from Asian Handicap + O/U 2.5.
+
+    The market encodes two independent signals:
+      - O/U 2.5 implied prob → total expected goals (λ_h + λ_a)
+      - Asian Handicap line  → expected goal difference (λ_h − λ_a)
+
+    When AH line is absent (= 0.0), falls back to preserving the model's own
+    lam_h/lam_a ratio while anchoring the total to the market O/U level. This
+    avoids incorrectly treating all matches as balanced when AH is unavailable.
+    """
+    if ctx.get("market_available", 0.0) < 0.5:
+        return lam_h, lam_a
+
+    p_over25 = ctx.get("market_over25", 0.0)
+    ah_line = ctx.get("market_ah_line", 0.0)
+
+    if p_over25 <= 0.05 or p_over25 >= 0.98:
+        return lam_h, lam_a
+
+    lam_total_market = _invert_over25(p_over25)
+
+    if abs(ah_line) > 0.01:
+        # AH line available: goal_diff from AH (negative line = home favoured)
+        goal_diff_market = -ah_line
+    else:
+        # AH absent: preserve model's directional ratio, scale to market total
+        lam_total_model = lam_h + lam_a
+        if lam_total_model > 0.01:
+            goal_diff_market = (lam_h - lam_a) / lam_total_model * lam_total_market
+        else:
+            goal_diff_market = 0.0
+
+    lam_h_market = max((lam_total_market + goal_diff_market) / 2, 0.20)
+    lam_a_market = max((lam_total_market - goal_diff_market) / 2, 0.20)
+
+    lam_h_adj = (1 - _MARKET_BLEND) * lam_h + _MARKET_BLEND * lam_h_market
+    lam_a_adj = (1 - _MARKET_BLEND) * lam_a + _MARKET_BLEND * lam_a_market
+    return lam_h_adj, lam_a_adj
 
 
 def absence_adjust(
@@ -186,7 +256,8 @@ def absence_adjust(
 
     Each team's unavailable quality fraction (absent market value / total) is
     converted to a log-odds shift: full absence → −ABSENCE_WEIGHT, none → 0.
-    Draw probability stays proportional to the home+away total.
+    p_draw is held fixed while home/away mass is reallocated by the log-odds
+    shift, then all three renormalised.
     """
     home_absent = _absent_quality_fraction(home_team)
     away_absent = _absent_quality_fraction(away_team)
@@ -223,17 +294,25 @@ def apply_to_match(
     """
     if apply_venue:
         lam_h_adj, lam_a_adj = venue_adjust(lam_h, lam_a, ctx_row)
-        bp_h, bp_d, bp_a = poisson_proba(lam_h_adj, lam_a_adj)
-        bp_h_orig, bp_d_orig, bp_a_orig = poisson_proba(lam_h, lam_a)
-
-        p_h = ens_p_h + (bp_h - bp_h_orig)
-        p_d = ens_p_d + (bp_d - bp_d_orig)
-        p_a = ens_p_a + (bp_a - bp_a_orig)
-        total = max(p_h + p_d + p_a, 1e-10)
-        p_h, p_d, p_a = p_h / total, p_d / total, p_a / total
     else:
         lam_h_adj, lam_a_adj = lam_h, lam_a
-        p_h, p_d, p_a = ens_p_h, ens_p_d, ens_p_a
+
+    # Market odds blend: AH + O/U → market-implied λ blended with model λ
+    lam_h_adj, lam_a_adj = market_odds_adjust(lam_h_adj, lam_a_adj, ctx_row)
+
+    bp_h, bp_d, bp_a = poisson_proba(lam_h_adj, lam_a_adj)
+    bp_h_orig, bp_d_orig, bp_a_orig = poisson_proba(lam_h, lam_a)
+
+    p_h = ens_p_h + (bp_h - bp_h_orig)
+    p_d = ens_p_d + (bp_d - bp_d_orig)
+    p_a = ens_p_a + (bp_a - bp_a_orig)
+    # The additive delta is unbounded — for lopsided fixtures it can push a
+    # small probability below zero, and renormalisation does NOT fix the sign
+    # (downstream: math domain error in absence_adjust, ValueError in
+    # rng.choice). Clip to a floor before renormalising.
+    p_h, p_d, p_a = max(p_h, 1e-6), max(p_d, 1e-6), max(p_a, 1e-6)
+    total = p_h + p_d + p_a
+    p_h, p_d, p_a = p_h / total, p_d / total, p_a / total
 
     p_h, p_d, p_a = quality_nudge(p_h, p_d, p_a, ctx_row)
 

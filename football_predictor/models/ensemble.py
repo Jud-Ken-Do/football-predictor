@@ -24,8 +24,6 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-from football_predictor.constants import OUTCOMES
-
 logger = logging.getLogger(__name__)
 
 _KALMAN_STD_COLS = [
@@ -75,10 +73,26 @@ class EnsembleModel:
         bp_proba: pd.DataFrame,
         y_true: pd.Series,
         context_X: pd.DataFrame | None = None,
+        sample_weight: np.ndarray | None = None,
     ) -> "EnsembleModel":
+        """Fit the blend weight(s) by NLL minimisation.
+
+        Args:
+            sample_weight: Optional per-row weights (e.g. match-type weights);
+                           when provided, minimises weighted NLL
+                           -(w * log p_true).sum() / w.sum().
+        """
         xgb = xgb_proba.values
         bp = bp_proba.values
         y = y_true.values
+        w = np.asarray(sample_weight, dtype=float) if sample_weight is not None else None
+        idx = np.arange(len(y))
+
+        def _nll(blended: np.ndarray) -> float:
+            log_p_true = np.log(np.maximum(blended[idx, y], 1e-10))
+            if w is not None:
+                return float(-(w * log_p_true).sum() / w.sum())
+            return float(-log_p_true.sum())
 
         ctx_raw = _extract_context(context_X) if context_X is not None else None
 
@@ -91,13 +105,7 @@ class EnsembleModel:
                 logit = ctx @ params[:3] + params[3]
                 a = 1.0 / (1.0 + np.exp(-logit))  # (n,)
                 blended = a[:, None] * xgb + (1 - a[:, None]) * bp
-                blended = np.maximum(blended, 1e-10)
-                total = 0.0
-                for i in range(len(OUTCOMES)):
-                    mask = y == i
-                    if mask.any():
-                        total -= np.log(blended[mask, i]).sum()
-                return total
+                return _nll(blended)
 
             # L2 regularisation on w (not bias) to prevent extreme weights
             def nll_reg(params: np.ndarray) -> float:
@@ -118,13 +126,7 @@ class EnsembleModel:
             def nll(params: np.ndarray) -> float:
                 a = float(np.clip(params[0], 1e-4, 1 - 1e-4))
                 blended = a * xgb + (1 - a) * bp
-                blended = np.maximum(blended, 1e-10)
-                total = 0.0
-                for i in range(len(OUTCOMES)):
-                    mask = y == i
-                    if mask.any():
-                        total -= np.log(blended[mask, i]).sum()
-                return total
+                return _nll(blended)
 
             res = minimize(nll, x0=[0.6], bounds=[(0.0, 1.0)], method="L-BFGS-B")
             self._alpha = float(np.clip(res.x[0], 0.0, 1.0))

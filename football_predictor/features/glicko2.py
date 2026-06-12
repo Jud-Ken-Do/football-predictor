@@ -29,8 +29,33 @@ _DEFAULT_SIGMA = 0.06      # initial volatility
 _EPSILON = 1e-6            # Illinois algorithm convergence threshold
 
 
+_RATING_PERIOD_DAYS = 90.0  # one international window ≈ a Glicko rating period
+
+# Home advantage on the μ scale (≈ +100 Elo points, matching elo.py).
+# Glicko-2 has no native HA term; without it every non-neutral result is
+# mis-attributed to rating strength. Injected by shifting the OPPONENT's μ
+# in each result tuple (equivalent to boosting one's own μ inside _update).
+# Applied ONLY when the match is not neutral.
+_HOME_ADV_MU = 100.0 / _SCALE  # ≈ 0.576
+
+
 def _default_state() -> dict[str, float]:
     return {"mu": _DEFAULT_MU, "phi": _DEFAULT_PHI, "sigma": _DEFAULT_SIGMA}
+
+
+def _inflate_phi(state: dict[str, float], gap_days: float) -> dict[str, float]:
+    """Grow RD for inactive rating periods: φ ← sqrt(φ² + σ²·n_inactive).
+
+    Without this, RD only ever shrinks — a team active in 2015 and dormant
+    since keeps a tiny φ forever, deleting Glicko-2's main advantage over Elo.
+    The playing period itself is excluded (φ* = sqrt(φ²+σ²) inside _update
+    already covers it); φ is capped at the unknown-team default.
+    """
+    extra_periods = max(0.0, gap_days / _RATING_PERIOD_DAYS - 1.0)
+    if extra_periods <= 0.0:
+        return state
+    phi = math.sqrt(state["phi"] ** 2 + state["sigma"] ** 2 * extra_periods)
+    return {**state, "phi": min(phi, _DEFAULT_PHI)}
 
 
 def _g(phi: float) -> float:
@@ -67,10 +92,18 @@ def _update(state: dict[str, float], results: list[tuple[float, float, float, fl
         p2 = phi * phi
         return (ex * (d2 - p2 - v - ex)) / (2.0 * (p2 + v + ex) ** 2) - (x - a) / (_TAU * _TAU)
 
+    # Bracket per Glickman (2012) step 5.2: when Δ² > φ² + v, ln(Δ²−φ²−v) is
+    # already a valid endpoint; the downward search applies ONLY to the other
+    # branch (and steps by τ, not 1.0). Running the search unconditionally
+    # walks B past the root, un-bracketing the iteration exactly after upsets.
     A = a
-    B = math.log(delta * delta - phi * phi - v) if delta * delta > phi * phi + v else a - 1.0
-    while f(B) < 0:
-        B -= 1.0
+    if delta * delta > phi * phi + v:
+        B = math.log(delta * delta - phi * phi - v)
+    else:
+        k = 1.0
+        while f(a - k * _TAU) < 0:
+            k += 1.0
+        B = a - k * _TAU
 
     fA, fB = f(A), f(B)
     for _ in range(100):
@@ -100,6 +133,7 @@ class Glicko2Features(FeatureModule):
     def __init__(self) -> None:
         self._ratings: dict[str, dict[str, float]] = {}
         self._snapshots: dict[str, dict[str, dict[str, float]]] = {}
+        self._last_played: dict[str, pd.Timestamp] = {}
         self._data_id: int | None = None
 
     def fetch(self, competition: str, seasons: list[str]) -> pd.DataFrame:
@@ -111,16 +145,39 @@ class Glicko2Features(FeatureModule):
         date_str = str(pd.Timestamp(match["date"]).date())
         home, away = match["home_team"], match["away_team"]
 
-        snap = self._snapshots.get(date_str, self._ratings)
-        h = snap.get(home, _default_state())
-        a = snap.get(away, _default_state())
+        # Per-date snapshots only contain teams that PLAYED on that date.
+        # A team absent from an existing snapshot (e.g. predicting a fixture
+        # on a day other matches were already recorded) must fall back to its
+        # latest rating — NOT to the default, which would silently reset it.
+        # The fallback rating gets RD inflated for time since the team's last
+        # match (rating periods), so stale ratings carry honest uncertainty.
+        snap = self._snapshots.get(date_str, {})
+
+        def _state_for(team: str) -> dict[str, float]:
+            s = snap.get(team)
+            if s is not None:
+                return s
+            s = self._ratings.get(team)
+            if s is None:
+                return _default_state()
+            last = self._last_played.get(team)
+            if last is not None:
+                gap = (pd.Timestamp(match["date"]) - last).days
+                s = _inflate_phi(s, float(gap))
+            return s
+
+        h = _state_for(home)
+        a = _state_for(away)
 
         r_h = h["mu"] * _SCALE + 1500.0
         r_a = a["mu"] * _SCALE + 1500.0
         phi_h = h["phi"] * _SCALE
         phi_a = a["phi"] * _SCALE
 
-        win_prob = _e(h["mu"], a["mu"], a["phi"])
+        # Home advantage in the expected-score: boost home μ for non-neutral
+        # matches only (WC 2026 fixture rows always carry neutral=True).
+        neutral = bool(match.get("neutral", False))
+        win_prob = _e(h["mu"] + (0.0 if neutral else _HOME_ADV_MU), a["mu"], a["phi"])
 
         return {
             "glicko2_home_rating": r_h,
@@ -143,11 +200,20 @@ class Glicko2Features(FeatureModule):
         df = df.sort_values("date").reset_index(drop=True)
 
         ratings: dict[str, dict[str, float]] = {}
+        last_played: dict[str, pd.Timestamp] = {}
         self._snapshots = {}
 
         for date, group in df.groupby("date", sort=True):
             date_str = str(date.date())
             all_teams = set(group["home_team"]) | set(group["away_team"])
+
+            # Inactivity: grow RD for rating periods without matches BEFORE
+            # this date's snapshot/update, so both training features and the
+            # subsequent update see honestly widened uncertainty.
+            for t in all_teams:
+                if t in ratings and t in last_played:
+                    gap = (date - last_played[t]).days
+                    ratings[t] = _inflate_phi(ratings[t], float(gap))
 
             self._snapshots[date_str] = {
                 t: dict(ratings.get(t, _default_state())) for t in all_teams
@@ -164,13 +230,21 @@ class Glicko2Features(FeatureModule):
                 h_state = ratings.get(h, _default_state())
                 a_state = ratings.get(a, _default_state())
 
-                team_results.setdefault(h, []).append((a_state["mu"], a_state["phi"], s_h, mw))
-                team_results.setdefault(a, []).append((h_state["mu"], h_state["phi"], 1.0 - s_h, mw))
+                # Home advantage: shift the opponent's μ in the result tuple
+                # (≡ boosting one's own μ inside _update). Home team faces an
+                # effectively weaker opponent (−HA); away team faces an
+                # effectively stronger one (+HA). Neutral matches unchanged.
+                ha = 0.0 if bool(row.get("neutral", False)) else _HOME_ADV_MU
+
+                team_results.setdefault(h, []).append((a_state["mu"] - ha, a_state["phi"], s_h, mw))
+                team_results.setdefault(a, []).append((h_state["mu"] + ha, h_state["phi"], 1.0 - s_h, mw))
 
             for team, res in team_results.items():
                 ratings[team] = _update(ratings.get(team, _default_state()), res)
+                last_played[team] = date
 
         self._ratings = ratings
+        self._last_played = last_played
 
     def feature_names(self) -> list[str]:
         return [

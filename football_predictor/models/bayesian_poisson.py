@@ -106,28 +106,54 @@ class BayesianPoissonModel:
         s2_att = self.sigma_att ** 2
         s2_def = self.sigma_def ** 2
 
-        def objective(x: np.ndarray) -> float:
+        # Linear predictor clipped before exp: a wild L-BFGS line-search step
+        # would otherwise overflow exp → inf and poison the optimisation.
+        _ETA_MAX = 6.0
+
+        def _lambdas(x: np.ndarray) -> tuple:
             mu, ha = x[0], x[1]
-            att_free = x[2: 2 + n - 1]
-            def_free = x[2 + n - 1:]
+            att = np.append(x[2: 2 + n - 1], -x[2: 2 + n - 1].sum())
+            dff = np.append(x[2 + n - 1:], -x[2 + n - 1:].sum())
+            lam_h = np.exp(np.clip(mu + att[hi] + dff[ai] + ha * not_neutral, -10.0, _ETA_MAX))
+            lam_a = np.exp(np.clip(mu + att[ai] + dff[hi], -10.0, _ETA_MAX))
+            return att, dff, lam_h, lam_a
 
-            att = np.append(att_free, -att_free.sum())
-            dff = np.append(def_free, -def_free.sum())
-
-            lam_h = np.exp(mu + att[hi] + dff[ai] + ha * not_neutral).clip(min=1e-6)
-            lam_a = np.exp(mu + att[ai] + dff[hi]).clip(min=1e-6)
-
+        def objective(x: np.ndarray) -> float:
+            att, dff, lam_h, lam_a = _lambdas(x)
+            ha = x[1]
             nll = -np.dot(w, poisson.logpmf(hg, lam_h) + poisson.logpmf(ag, lam_a))
             # Home advantage prior: N(0.20, 0.15²) — centred on empirical log-goals HA,
             # not zero.  The old prior N(0, √0.5) pulled estimates toward zero home advantage.
             reg = (att ** 2).sum() / (2 * s2_att) + (dff ** 2).sum() / (2 * s2_def) + (ha - 0.20) ** 2 / (2 * 0.15 ** 2)
             return nll + reg
 
+        def gradient(x: np.ndarray) -> np.ndarray:
+            """Analytic Poisson-GLM score — finite differences over ~400 params
+            were slow (400+ objective evals per gradient) and noisy near the
+            optimum. ∂nll/∂η = w·(λ − y) for a log link."""
+            att, dff, lam_h, lam_a = _lambdas(x)
+            ha = x[1]
+            r_h = w * (lam_h - hg)   # ∂nll/∂η_h per match
+            r_a = w * (lam_a - ag)
+            g_mu = float(r_h.sum() + r_a.sum())
+            g_ha = float(np.dot(r_h, not_neutral)) + (ha - 0.20) / (0.15 ** 2)
+            # Full-vector gradients (likelihood + prior), then chain rule for
+            # the corner constraint: ∂f/∂att_free_j = g_full[j] − g_full[n−1].
+            g_att = np.bincount(hi, weights=r_h, minlength=n) + np.bincount(ai, weights=r_a, minlength=n)
+            g_def = np.bincount(ai, weights=r_h, minlength=n) + np.bincount(hi, weights=r_a, minlength=n)
+            g_att += att / s2_att
+            g_def += dff / s2_def
+            return np.concatenate((
+                [g_mu, g_ha],
+                g_att[:-1] - g_att[-1],
+                g_def[:-1] - g_def[-1],
+            ))
+
         x0 = np.zeros(2 + 2 * (n - 1))
         x0[0] = math.log(1.3)
         x0[1] = 0.2
 
-        res = minimize(objective, x0, method="L-BFGS-B",
+        res = minimize(objective, x0, jac=gradient, method="L-BFGS-B",
                        options={"maxiter": 5000, "maxfun": 200_000, "ftol": 1e-9})
         if not res.success:
             logger.warning("BayesianPoisson MAP did not converge: %s", res.message)
@@ -168,6 +194,14 @@ class BayesianPoissonModel:
         df["date"] = pd.to_datetime(df["date"])
         neutral_arr = df.get("neutral", pd.Series(False, index=df.index)).values.astype(bool)
 
+        # Same time-decay × match-type weights as the main likelihood — the λs
+        # being conditioned on came from a weighted fit, so ρ must be weighted
+        # consistently (a 2010 friendly shouldn't count like a 2025 qualifier).
+        ref = df["date"].max()
+        mw = df.get("match_weight", pd.Series(1.0, index=df.index))
+        days = (ref - df["date"]).dt.days.values.astype(float)
+        w_all = np.exp(-math.log(2) * days / self.half_life_days) * mw.values
+
         lam_hs, lam_as, hg_arr, ag_arr = [], [], [], []
         for i, (_, row) in enumerate(df.iterrows()):
             lam_h = self._lambda(row["home_team"], row["away_team"], home=not bool(neutral_arr[i]))
@@ -184,6 +218,7 @@ class BayesianPoissonModel:
 
         low = (hg_arr <= 1) & (ag_arr <= 1)
         lh, la, hg, ag = lam_hs[low], lam_as[low], hg_arr[low], ag_arr[low]
+        w_low = w_all[low]
 
         def _tau(h: int, a: int, lam_h: float, lam_a: float, rho: float) -> float:
             if h == 0 and a == 0:
@@ -198,17 +233,24 @@ class BayesianPoissonModel:
 
         def neg_ll(rho: float) -> float:
             total = 0.0
-            for h_i, a_i, lh_i, la_i in zip(hg, ag, lh, la):
+            for h_i, a_i, lh_i, la_i, w_i in zip(hg, ag, lh, la, w_low):
                 t = _tau(int(h_i), int(a_i), float(lh_i), float(la_i), rho)
                 if t <= 0:
                     return 1e10
-                total -= math.log(t)
+                total -= w_i * math.log(t)
             return total
 
+        # Positivity of τ bounds ρ on BOTH sides:
+        #   ρ > 0:  τ(0,0) = 1 − λhλa·ρ > 0  →  ρ < 1/max(λhλa)
+        #   ρ < 0:  τ(0,1) = 1 + λh·ρ  > 0  →  ρ > −1/max(λh, λa)
+        # The old fixed lower bound −0.3 created a discontinuous 1e10 cliff
+        # inside the search interval whenever max λ > 3.3.
         max_prod = float((lh * la).max()) if len(lh) > 0 else 1.0
+        max_lam = float(max(lh.max(), la.max())) if len(lh) > 0 else 1.0
         rho_upper = min(0.3, 0.99 / max(max_prod, 1e-4))
+        rho_lower = max(-0.3, -0.99 / max(max_lam, 1e-4))
 
-        res = minimize_scalar(neg_ll, bounds=(-0.3, rho_upper), method="bounded")
+        res = minimize_scalar(neg_ll, bounds=(rho_lower, rho_upper), method="bounded")
         self._rho = float(res.x)
         logger.info("DC ρ=%.4f (low-score correlation; %d low-scoring matches)", self._rho, int(low.sum()))
         print(f"  [BayesPoisson] DC ρ={self._rho:.4f}  (goal correlation correction)")
@@ -247,19 +289,19 @@ class BayesianPoissonModel:
         lam_h = self._lambda(home, away, home=not neutral)
         lam_a = self._lambda(away, home, home=False)
 
-        ph = pd = pa = 0.0
+        ph = pd_ = pa = 0.0   # pd_ — don't shadow the pandas alias
         for h in range(_MAX_GOALS + 1):
             for a in range(_MAX_GOALS + 1):
                 p = poisson.pmf(h, lam_h) * poisson.pmf(a, lam_a) * self._dc_tau(h, a, lam_h, lam_a)
                 if h > a:
                     ph += p
                 elif h == a:
-                    pd += p
+                    pd_ += p
                 else:
                     pa += p
 
-        total = max(ph + pd + pa, 1e-10)
-        return {"home_win": ph / total, "draw": pd / total, "away_win": pa / total}
+        total = max(ph + pd_ + pa, 1e-10)
+        return {"home_win": ph / total, "draw": pd_ / total, "away_win": pa / total}
 
     def get_lambdas(self, home: str, away: str, neutral: bool = True) -> tuple[float, float]:
         """(lambda_home, lambda_away) for goal-count simulation."""
@@ -327,7 +369,9 @@ class BayesianPoissonModel:
                 sigma_def = pm.HalfNormal("sigma_def", sigma=self.sigma_def)
 
                 mu_g = pm.Normal("mu_global", mu=math.log(1.3), sigma=0.5)
-                home_adv = pm.Normal("home_adv", mu=0.2, sigma=0.3)
+                # σ=0.15 matches the MAP prior N(0.20, 0.15²) — "MCMC as a
+                # sanity check on MAP" only works if the priors agree.
+                home_adv = pm.Normal("home_adv", mu=0.2, sigma=0.15)
 
                 att_nc = pm.Normal("att_raw", mu=0.0, sigma=1.0, shape=n)
                 def_nc = pm.Normal("def_raw", mu=0.0, sigma=1.0, shape=n)
@@ -414,12 +458,20 @@ class BayesianPoissonModel:
 
         tr = self._mcmc_trace
         idx = tr["team_idx"]
-        n_teams = len(tr["teams"])
         n_s = min(n_samples, len(tr["mu"]))
-        s_idx = np.random.choice(len(tr["mu"]), size=n_s, replace=False)
+        # Seeded subsample — unseeded draws made predictions non-reproducible
+        # run-to-run.
+        rng = np.random.default_rng(42)
+        s_idx = rng.choice(len(tr["mu"]), size=n_s, replace=False)
 
-        hi_i = idx.get(home, 0)
-        ai_i = idx.get(away, 0)
+        # Unknown team → league-average strength (zero att/def), matching the
+        # MAP path. idx.get(team, 0) previously mapped unknown names to
+        # whatever team is alphabetically first — silently wrong predictions.
+        hi_i = idx.get(home)
+        ai_i = idx.get(away)
+        if hi_i is None or ai_i is None:
+            logger.warning("predict_proba_mcmc: unknown team(s) %s — using league average",
+                           [t for t, i in [(home, hi_i), (away, ai_i)] if i is None])
         ha_flag = 0.0 if neutral else 1.0
 
         att_s = tr["att"][s_idx]
@@ -430,8 +482,14 @@ class BayesianPoissonModel:
         att_s -= att_s.mean(axis=1, keepdims=True)
         dff_s -= dff_s.mean(axis=1, keepdims=True)
 
-        lam_h_s = np.exp(mu_s + att_s[:, hi_i] + dff_s[:, ai_i] + ha_s * ha_flag)
-        lam_a_s = np.exp(mu_s + att_s[:, ai_i] + dff_s[:, hi_i])
+        zero = np.zeros(n_s)
+        att_h = att_s[:, hi_i] if hi_i is not None else zero
+        dff_h = dff_s[:, hi_i] if hi_i is not None else zero
+        att_a = att_s[:, ai_i] if ai_i is not None else zero
+        dff_a = dff_s[:, ai_i] if ai_i is not None else zero
+
+        lam_h_s = np.exp(mu_s + att_h + dff_a + ha_s * ha_flag)
+        lam_a_s = np.exp(mu_s + att_a + dff_h)
 
         goals = np.arange(_MAX_GOALS + 1)
         ph_acc = pd_acc = pa_acc = 0.0
@@ -439,6 +497,14 @@ class BayesianPoissonModel:
             p_h = poisson.pmf(goals, float(lh))
             p_a = poisson.pmf(goals, float(la))
             mat = np.outer(p_h, p_a)
+            # Dixon-Coles low-score correction — previously the MCMC path
+            # silently dropped the fitted ρ, so --mcmc runs lost the draw
+            # boost in the (0,0)/(1,1) cells.
+            if self._rho != 0.0:
+                mat[0, 0] *= self._dc_tau(0, 0, float(lh), float(la))
+                mat[0, 1] *= self._dc_tau(0, 1, float(lh), float(la))
+                mat[1, 0] *= self._dc_tau(1, 0, float(lh), float(la))
+                mat[1, 1] *= self._dc_tau(1, 1, float(lh), float(la))
             sample_ph = float(np.triu(mat, k=1).sum())
             sample_pd = float(np.diag(mat).sum())
             sample_pa = float(np.tril(mat, k=-1).sum())

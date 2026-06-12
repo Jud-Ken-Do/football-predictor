@@ -90,6 +90,7 @@ class FormFeatures(FeatureModule):
             out[f"goals_scored_last{w}"] = 0.0
             out[f"goals_conceded_last{w}"] = 0.0
             out[f"win_rate_last{w}"] = 0.0
+        out["n_matches"] = 0.0
         return out
 
     def feature_names(self) -> list[str]:
@@ -103,6 +104,9 @@ class FormFeatures(FeatureModule):
                     f"form_{side}_goals_conceded_last{w}",
                     f"form_{side}_win_rate_last{w}",
                 ]
+            # Number of matches available (capped at the largest window) —
+            # lets XGBoost distinguish thin-history form from established form.
+            names += [f"form_{side}_n_matches"]
         for w in FORM_WINDOW_SIZES:
             names += [f"form_pts_diff_last{w}", f"form_gd_diff_last{w}"]
         return names
@@ -133,9 +137,18 @@ def _form_from_history(history: deque) -> dict[str, float]:
                 pts.append(1); wins.append(0)
             else:
                 pts.append(0); wins.append(0)
-        out[f"pts_last{w}"]          = float(np.sum(pts))
-        out[f"gd_last{w}"]           = float(np.sum(gd))
+        # PER-GAME means, not sums: the window may hold fewer than w matches
+        # (`matches[-w:]` of a short history), and a raw sum conflates form
+        # with match count — a 4-match team with 3 wins would score
+        # pts_last20=9 vs an established team's ~30. Feature NAMES are kept
+        # for downstream compatibility, but pts_last{w} / gd_last{w} are now
+        # per-game averages over the available window.
+        out[f"pts_last{w}"]          = float(np.mean(pts))
+        out[f"gd_last{w}"]           = float(np.mean(gd))
         out[f"goals_scored_last{w}"] = float(np.mean(scored))
         out[f"goals_conceded_last{w}"] = float(np.mean(conceded))
         out[f"win_rate_last{w}"]     = float(np.mean(wins))
+    # Expose sample size explicitly so the model can weigh form reliability
+    # (capped at the largest window by the deque maxlen).
+    out["n_matches"] = float(min(len(matches), _MAX_WINDOW))
     return out

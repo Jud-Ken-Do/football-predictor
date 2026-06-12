@@ -100,7 +100,7 @@ Every feature source extends `FeatureModule` (`base.py`) with:
 
 Registered in `features/__init__.py::REGISTRY`. Two sets of active modules in `constants.py`:
 
-**`DEFAULT_FEATURE_MODULES` (13 modules, ~120 features — used in XGBoost training):**
+**`DEFAULT_FEATURE_MODULES` (12 modules — used in XGBoost training):**
 
 | Module | File | Features | Notes |
 |---|---|---|---|
@@ -112,13 +112,13 @@ Registered in `features/__init__.py::REGISTRY`. Two sets of active modules in `c
 | `h2h` | `h2h.py` | ~8 | H2H win rate, avg goals, last 10 meetings |
 | `squad_strength` | `squad_strength.py` | 14 | 40-match rolling attack/defence from competitive history |
 | `confederation` | `confederation.py` | ~6 | Data-derived offsets: CONMEBOL=65, UEFA=50, AFC=25, CAF=10, CONCACAF=−20, OFC=−40 |
-| `tournament_stage` | `tournament_stage.py` | ~5 | Group/knockout, pressure multiplier, must-win flag |
 | `rankings` | `rankings.py` | ~4 | FIFA world ranking points |
 | `odds` | `odds.py` | ~10 | Bookmaker closing odds; `odds_available` flag drives context-adaptive ensemble |
 | `xg_form` | `xg_form.py` | 13 | Rolling xG/xGA — Excel (UEFA/AFC/CONMEBOL) + FBref JSON fallback |
-| `transfermarkt` | `transfermarkt.py` | 5 | Squad market values from Transfermarkt.com (June 2026) |
 
-**`WC_CONTEXT_MODULES` (5 modules — post-processing only, not in XGBoost):**
+Removed from training (2026-06-12, see ARCHITECTURE_REVIEW.md): `tournament_stage` (all-constant in training data), `transfermarkt` (June-2026 values leaked into historical rows — now a WC context module).
+
+**`WC_CONTEXT_MODULES` (7 modules — post-processing only, not in XGBoost):**
 
 | Module | File | Notes |
 |---|---|---|
@@ -127,6 +127,8 @@ Registered in `features/__init__.py::REGISTRY`. Two sets of active modules in `c
 | `api_form` | `api_form.py` | Last-10-match form from API-Football (pre-cached) |
 | `squad_wc2026` | `squad_wc2026.py` | Club tier, avg age, top-club ratio from FIFA squad list |
 | `injury` | `injury.py` | Pre-match injuries/suspensions from API-Football cache |
+| `wc2026_market` | `wc2026_market.py` | Live pre-match odds: AH line, O/U 2.5, BTTS (API-Football) |
+| `transfermarkt` | `transfermarkt.py` | Squad market values (June 2026 snapshot — leakage if trained on) |
 
 ### Kalman EKF (`features/kalman_strength.py`)
 
@@ -238,7 +240,7 @@ Current calibrated values (from H2H analysis, updated 2026-06-10):
 ## What's working
 
 - Full pipeline runs end-to-end (`python3.11 scripts/pipeline.py`)
-- 13 training feature modules (~120 features after correlation pruning); 5 WC context modules as post-processing
+- 12 training feature modules (after correlation pruning); 7 WC context modules as post-processing
 - XGBoost + Temperature Scaling + BayesPoisson MAP (DC ρ) + Context-Adaptive Ensemble
 - Kalman EKF with EM-tuned process noise q; match-importance weighted; forward-only causal states
 - Glicko-2 with match-importance weighting (Illinois σ update)
@@ -259,3 +261,11 @@ Current calibrated values (from H2H analysis, updated 2026-06-10):
 2. **sofifa ratings are static** — EA FC 26 snapshot; no historical versions available. Correct for WC 2026 prediction but would be leakage if mistakenly added to training features. Architecture prevents this (WC_CONTEXT_MODULES only).
 3. **MCMC not default** — MAP is always used; `--mcmc` flag adds ~5 min for full posterior. Impact on point estimates is small; main benefit is uncertainty quantification.
 4. **No live odds** — WC 2026 fixtures have `odds_available=0.0` pre-tournament. Ensemble context-adaptive α defaults toward scalar when odds signal is absent.
+
+## Architecture review (2026-06-12)
+
+A full review found and fixed 8 critical bugs + ~35 bugs/weaknesses — see `ARCHITECTURE_REVIEW.md` for the complete list with statuses. Key operational notes:
+- Backtest numbers produced before 2026-06-12 are invalid (hyperparameter leakage, window contamination) — re-run `scripts/backtest.py` for honest metrics.
+- Backtests must use `GradientBoostModel(use_tuned_cache=False)` (already wired in).
+- `pipeline.py --retune` now actually re-tunes and persists `friendly_weight`.
+- Monte Carlo runs are seeded (`--seed`, default 42).

@@ -29,8 +29,9 @@ _NAME_MAP: dict[str, str] = {
     "Curacao":                    "Curaçao",
     "Trinidad & Tobago":          "Trinidad and Tobago",
     "Czech Republic":             "Czechia",
-    "South Korea":                "Korea Republic",
-    "Ivory Coast":                "Côte d'Ivoire",
+    # "South Korea" and "Ivory Coast" are already canonical — do NOT map them
+    # to "Korea Republic"/"Côte d'Ivoire" (names that never appear in training
+    # data); doing so silently broke all odds/xG joins for these teams.
     "Northern Ireland":           "Northern Ireland",
     "Congo":                      "Republic of Congo",
     "Central Africa":             "Central African Republic",
@@ -73,7 +74,13 @@ def load_all() -> dict[str, pd.DataFrame]:
 
 @lru_cache(maxsize=1)
 def build_odds_lookup() -> dict[tuple, dict[str, float]]:
-    """Build (home, away, date_str) → odds dict for all available matches."""
+    """Build (home, away, date_str) → odds dict for all available matches.
+
+    Sources (merged in order):
+      1. football-data.co.uk XLSX — WC 2018/2022 closing odds + qualifiers
+      2. data/wc2026_odds_cache.json — live pre-match odds for all 72 WC 2026 fixtures
+    """
+    import json as _json
     sheets = load_all()
     lookup: dict[tuple, dict[str, float]] = {}
 
@@ -137,6 +144,36 @@ def build_odds_lookup() -> dict[tuple, dict[str, float]]:
                 entry.update({"max_ph": mh, "max_pd": md_p, "max_pa": ma})
 
             lookup[key] = entry
+
+    # ── WC 2026 live odds (API-Football cache) ────────────────────────────────
+    _wc26_cache = Path(__file__).resolve().parents[3] / "data" / "wc2026_odds_cache.json"
+    if _wc26_cache.exists():
+        try:
+            from football_predictor.data.wc2026 import GROUP_STAGE_SCHEDULE, normalise
+            # Build (home, away) → schedule date map from our authoritative schedule
+            _sched_dates = {
+                (normalise(m["home_team"]), normalise(m["away_team"])): str(m["date"])
+                for m in GROUP_STAGE_SCHEDULE
+            }
+            wc26 = _json.loads(_wc26_cache.read_text())
+            for fid, d in wc26.items():
+                home = normalise(d.get("home_team", ""))
+                away = normalise(d.get("away_team", ""))
+                if not (home and away) or "p1" not in d:
+                    continue
+                # Use our schedule date so the key matches predict_wc2026.py fixture rows
+                date = _sched_dates.get((home, away)) or _sched_dates.get((away, home))
+                if not date:
+                    continue
+                lookup[(home, away, date)] = {
+                    "ph": d["p1"], "pd": d["px"], "pa": d["p2"],
+                    "overround": 1.05,
+                    "avg_h": round(1 / max(d["p1"], 0.01), 2),
+                    "avg_d": round(1 / max(d["px"], 0.01), 2),
+                    "avg_a": round(1 / max(d["p2"], 0.01), 2),
+                }
+        except Exception:
+            pass
 
     return lookup
 

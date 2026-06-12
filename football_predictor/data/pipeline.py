@@ -64,9 +64,18 @@ def build_feature_matrix(
     return X, y
 
 
+# Columns required by EnsembleModel._extract_context — if the pruner drops any
+# of these, the context-adaptive ensemble silently degrades to a scalar α.
+_ENSEMBLE_CONTEXT_COLS = [
+    "odds_available", "kalman_home_att_std", "kalman_home_def_std",
+    "kalman_away_att_std", "kalman_away_def_std", "h2h_n_matches",
+]
+
+
 def prune_correlated_features(
     X: pd.DataFrame,
     threshold: float = 0.95,
+    protect: list[str] | None = None,
 ) -> tuple[pd.DataFrame, list[str]]:
     """Remove near-duplicate features with |Pearson r| > threshold.
 
@@ -75,15 +84,25 @@ def prune_correlated_features(
     count for XGBoost (faster training, cleaner SHAP) without information loss
     because the kept feature encodes the same signal.
 
+    Protected columns (default: the 6 ensemble context columns) are never
+    dropped: when a correlated pair contains a protected column, the other
+    member is dropped instead; if both are protected, neither is dropped.
+
     Returns (pruned_X, list_of_dropped_column_names).
     """
     if X.shape[1] < 2:
         return X, []
 
+    protected = set(_ENSEMBLE_CONTEXT_COLS if protect is None else protect)
+
     corr = X.corr().abs()
     upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
     variances = X.var()
 
+    # Note on chain behaviour: if column A was dropped because it correlated
+    # with column B, and B is later itself dropped (via another pair), A stays
+    # dropped even though its "reason" is gone. This mild over-pruning is
+    # accepted — the dropped features were near-duplicates anyway.
     to_drop: set[str] = set()
     for col in upper.columns:
         if col in to_drop:
@@ -92,7 +111,16 @@ def prune_correlated_features(
         for other in correlated:
             if other in to_drop:
                 continue
-            if variances.get(col, 0.0) >= variances.get(other, 0.0):
+            col_protected = col in protected
+            other_protected = other in protected
+            if col_protected and other_protected:
+                continue  # both protected — drop neither
+            if col_protected:
+                to_drop.add(other)
+            elif other_protected:
+                to_drop.add(col)
+                break  # col itself is being dropped; stop comparing it
+            elif variances.get(col, 0.0) >= variances.get(other, 0.0):
                 to_drop.add(other)
             else:
                 to_drop.add(col)

@@ -41,9 +41,18 @@ class EloFeatures(FeatureModule):
         home = match["home_team"]
         away = match["away_team"]
 
-        snap = self._snapshot.get(date_str, self._final)
-        r_home_raw = snap.get(home, self._DEFAULT_RATING)
-        r_away_raw = snap.get(away, self._DEFAULT_RATING)
+        # Per-date snapshots only contain teams that PLAYED on that date.
+        # A team absent from an existing snapshot (e.g. predicting a fixture
+        # on a day other matches were already recorded) must fall back to its
+        # latest rating — NOT to the 1500 default, which would silently rate
+        # Brazil equal to Curaçao for every same-day fixture.
+        snap = self._snapshot.get(date_str, {})
+        r_home_raw = snap.get(home)
+        if r_home_raw is None:
+            r_home_raw = self._final.get(home, self._DEFAULT_RATING)
+        r_away_raw = snap.get(away)
+        if r_away_raw is None:
+            r_away_raw = self._final.get(away, self._DEFAULT_RATING)
 
         is_neutral = bool(match.get("neutral", False))
         ha = ELO_NEUTRAL_ADVANTAGE if is_neutral else ELO_HOME_ADVANTAGE

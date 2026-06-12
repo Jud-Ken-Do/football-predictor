@@ -16,18 +16,27 @@ logger = logging.getLogger(__name__)
 _RANKINGS_URL = "https://raw.githubusercontent.com/Dato-Futbol/fifa-ranking/master/ranking_fifa_historical.csv"
 _CACHE_PATH = pathlib.Path.home() / ".cache" / "football_predictor" / "fifa_rankings.csv"
 
-# Name variants in the Dato-Futbol dataset → our canonical WC team names (and vice versa)
-_RANKING_NAME_MAP: dict[str, str] = {
-    "South Korea": "Korea Republic",
-    "United States": "USA",
-    "DR Congo": "Congo DR",
-    "Ivory Coast": "Côte d'Ivoire",
-    "Bosnia-Herzegovina": "Bosnia and Herzegovina",
-    "Curacao": "Curaçao",
-    "Turkey": "Türkiye",
-    "Czech Republic": "Czech Republic",  # matches as-is
-    "Cabo Verde": "Cape Verde Islands",
-    "Cape Verde": "Cape Verde Islands",
+# The FIFA rankings cache contains BOTH old and new name variants for renamed
+# teams (e.g. "Czech Republic" 314 rows + "Czechia" 14 rows). A single-name
+# lookup truncates the timeline at the rename date, so the as-of-date query
+# must UNION all variants of the same country.
+_RANKING_ALIASES: dict[str, list[str]] = {
+    "Czechia": ["Czechia", "Czech Republic"],
+    "Türkiye": ["Türkiye", "Turkey"],
+    "Cabo Verde": ["Cabo Verde", "Cape Verde", "Cape Verde Islands"],
+    "IR Iran": ["IR Iran", "Iran"],
+    "South Korea": ["South Korea", "Korea Republic"],
+    "Ivory Coast": ["Ivory Coast", "Côte d'Ivoire"],
+    "Bosnia and Herzegovina": ["Bosnia and Herzegovina", "Bosnia-Herzegovina"],
+    "United States": ["United States", "USA"],
+    "DR Congo": ["DR Congo", "Congo DR"],
+    "Curaçao": ["Curaçao", "Curacao"],
+}
+
+# Flat lookup: ANY variant of a renamed team → full alias group, so the union
+# works regardless of which variant the caller uses as the team name.
+_ALIAS_LOOKUP: dict[str, list[str]] = {
+    name: group for group in _RANKING_ALIASES.values() for name in group
 }
 
 
@@ -90,19 +99,18 @@ class RankingsFeatures(FeatureModule):
         }
 
     def _rank_at(self, team: str, date: pd.Timestamp, rankings: pd.DataFrame) -> dict:
-        # Resolve name variant → dataset name
-        lookup = _RANKING_NAME_MAP.get(team, team)
+        # Union the timelines of all name variants for renamed teams; the
+        # latest row <= date may come from either the old or the new name.
+        aliases = _ALIAS_LOOKUP.get(team, [team])
         team_rows = rankings[
-            (rankings["team"] == lookup) & (rankings["rank_date"] <= date)
+            rankings["team"].isin(aliases) & (rankings["rank_date"] <= date)
         ].sort_values("rank_date", ascending=False)
 
         if team_rows.empty:
-            # Partial match fallback for name drift
-            partial = rankings[rankings["team"].str.contains(team.split()[0], case=False, na=False)]
-            partial = partial[partial["rank_date"] <= date].sort_values("rank_date", ascending=False)
-            if not partial.empty:
-                row = partial.iloc[0]
-                return {"rank": float(row.get("rank", 100)), "points": float(row["total_points"])}
+            # No substring fallback here: matching on the first word of the
+            # team name can silently return a DIFFERENT country (e.g.
+            # "Congo" matching "Congo DR"). Unknown teams get the neutral
+            # default instead.
             return {"rank": 100.0, "points": 1000.0}
 
         row = team_rows.iloc[0]

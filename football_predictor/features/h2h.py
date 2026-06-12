@@ -18,12 +18,15 @@ class H2HFeatures(FeatureModule):
 
     name = "h2h"
 
+    # No-history defaults must be SYMMETRIC: most WC pairings have no H2H and
+    # are played at neutral venues, so an asymmetric default (1.3 vs 1.1)
+    # would inject a phantom home-advantage signal into the features.
     _DEFAULTS = {
         "h2h_home_win_rate": 0.33,
         "h2h_away_win_rate": 0.33,
         "h2h_draw_rate": 0.33,
-        "h2h_avg_goals_home": 1.3,
-        "h2h_avg_goals_away": 1.1,
+        "h2h_avg_goals_home": 1.2,
+        "h2h_avg_goals_away": 1.2,
         "h2h_n_matches": 0.0,
     }
 
@@ -93,14 +96,9 @@ class H2HFeatures(FeatureModule):
     @staticmethod
     def _compute(history: deque, t1_is_home: bool) -> dict[str, float]:
         if not history:
-            return {
-                "h2h_home_win_rate": 0.33,
-                "h2h_away_win_rate": 0.33,
-                "h2h_draw_rate": 0.33,
-                "h2h_avg_goals_home": 1.3,
-                "h2h_avg_goals_away": 1.1,
-                "h2h_n_matches": 0.0,
-            }
+            # Symmetric defaults — see _DEFAULTS comment (no home bias for
+            # never-met pairs on neutral venues).
+            return dict(H2HFeatures._DEFAULTS)
 
         t1_wins = t2_wins = draws = 0
         goals_t1: list[float] = []

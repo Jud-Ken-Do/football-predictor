@@ -37,9 +37,13 @@ class GradientBoostModel:
 
     OUTCOME_LABELS = ["home_win", "draw", "away_win"]
 
-    def __init__(self, random_state: int = 42):
+    def __init__(self, random_state: int = 42, use_tuned_cache: bool = True):
+        """use_tuned_cache=False is REQUIRED for honest evaluation on WC
+        2018/2022: the cached hyperparameters were selected by Optuna with
+        those tournaments as validation folds — loading them and then
+        reporting metrics on the same matches is test-set leakage."""
         params = _DEFAULT_PARAMS.copy()
-        if _TUNED_PARAMS_PATH.exists():
+        if use_tuned_cache and _TUNED_PARAMS_PATH.exists():
             try:
                 params = json.loads(_TUNED_PARAMS_PATH.read_text())
                 print(f"  [XGB] Loaded tuned params from {_TUNED_PARAMS_PATH.name}")
@@ -65,6 +69,13 @@ class GradientBoostModel:
     def predict_proba(self, X: pd.DataFrame) -> pd.DataFrame:
         """Return a DataFrame with columns home_win, draw, away_win."""
         if self._feature_names and list(X.columns) != self._feature_names:
+            # Reindex is needed for column-order alignment, but it silently
+            # zero-fills any feature genuinely absent at predict time. Extra
+            # columns in X are expected (e.g. pre-pruned training frames) —
+            # only warn about MISSING columns.
+            missing = [c for c in self._feature_names if c not in X.columns]
+            if missing:
+                print(f"  ⚠️  [XGB] {len(missing)} feature column(s) missing at predict time, zero-filled: {missing[:10]}")
             X = X.reindex(columns=self._feature_names, fill_value=0.0)
         proba = self.model.predict_proba(X.values)
         return pd.DataFrame(proba, columns=self.OUTCOME_LABELS, index=X.index)
