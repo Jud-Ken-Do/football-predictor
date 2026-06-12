@@ -342,6 +342,29 @@ Scores/probs are swapped when the row orientation flips but `lam_home`/`lam_away
 
 ---
 
+
+## Post-fix honest baseline (recorded 2026-06-12, first clean run)
+
+Backtests with `use_tuned_cache=False`, corrected group-stage windows, out-of-sample BP,
+weighted T/α on scaled probs. friendly_weight=0.8 (cached; not yet re-tuned honestly).
+
+| Tournament | N | Log-loss | 95% CI | Uniform | Acc | T | α(XGB) |
+|---|---|---|---|---|---|---|---|
+| WC 2014 | 48 | 0.9597 | [0.861, 1.063] | 1.0986 | 0.500 | 1.363 | 0.571 |
+| WC 2018 | 48 | 0.9785 | [0.865, 1.094] | 1.0986 | 0.583 | 1.170 | 0.508 |
+| WC 2022 | 48 | 1.0975 | [0.936, 1.260] | 1.0986 | 0.500 | 1.210 | 0.602 |
+| **Average** | 144 | **1.0119** | — | 1.0986 | 0.528 | — | — |
+
+Every roadmap change (R1–R10) must beat this average to be kept. Continental
+baselines still to be recorded (`backtest.py --continental`). Note WC 2022 barely
+beats uniform — the upset-heavy tournament (Saudi–Argentina, Japan–Germany/Spain);
+published bookmaker closing-odds log-loss for that group stage is ~1.04–1.07, so
+the headroom over the market is structurally small there.
+
+Production run same day: Optuna re-tuned on the new feature set (LL 0.9978,
+depth 3 / lr 0.0057 / 534 trees), T=0.917, ᾱ=0.70 XGB. Tournament headline:
+Argentina 17.7% / Spain 13.8% / Brazil 9.8%.
+
 ## 6. What was checked and found correct
 
 - No leakage in form/SoS/H2H/squad-strength rolling features — caches snapshot state before processing each date; xG uses `bisect_left` (strictly before).

@@ -100,7 +100,7 @@ Every feature source extends `FeatureModule` (`base.py`) with:
 
 Registered in `features/__init__.py::REGISTRY`. Two sets of active modules in `constants.py`:
 
-**`DEFAULT_FEATURE_MODULES` (12 modules — used in XGBoost training):**
+**`DEFAULT_FEATURE_MODULES` (11 modules — used in XGBoost training):**
 
 | Module | File | Features | Notes |
 |---|---|---|---|
@@ -240,7 +240,7 @@ Current calibrated values (from H2H analysis, updated 2026-06-10):
 ## What's working
 
 - Full pipeline runs end-to-end (`python3.11 scripts/pipeline.py`)
-- 12 training feature modules (after correlation pruning); 7 WC context modules as post-processing
+- 11 training feature modules (130 → ~109 features after correlation pruning); 7 WC context modules as post-processing
 - XGBoost + Temperature Scaling + BayesPoisson MAP (DC ρ) + Context-Adaptive Ensemble
 - Kalman EKF with EM-tuned process noise q; match-importance weighted; forward-only causal states
 - Glicko-2 with match-importance weighting (Illinois σ update)
