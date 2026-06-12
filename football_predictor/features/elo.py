@@ -102,9 +102,21 @@ class EloFeatures(FeatureModule):
                 s_h = 1.0 if hg > ag else (0.5 if hg == ag else 0.0)
                 s_a = 1.0 - s_h
 
+                # Margin-of-victory multiplier (World Football Elo standard):
+                # a 5-0 should move ratings more than a 1-0. G grows sub-linearly
+                # so blowouts don't dominate (gd=2 → 1.5, gd=3 → 1.75, gd=5 → 2.0).
+                gd = abs(hg - ag)
+                if gd <= 1:
+                    g_mov = 1.0
+                elif gd == 2:
+                    g_mov = 1.5
+                else:
+                    g_mov = (11.0 + gd) / 8.0
+
                 mw = float(row.get("match_weight", 1.0))
-                ratings[home] = ratings.get(home, self._DEFAULT_RATING) + ELO_K_FACTOR * mw * (s_h - exp_h)
-                ratings[away] = ratings.get(away, self._DEFAULT_RATING) + ELO_K_FACTOR * mw * (s_a - (1.0 - exp_h))
+                k_eff = ELO_K_FACTOR * mw * g_mov
+                ratings[home] = ratings.get(home, self._DEFAULT_RATING) + k_eff * (s_h - exp_h)
+                ratings[away] = ratings.get(away, self._DEFAULT_RATING) + k_eff * (s_a - (1.0 - exp_h))
 
         self._final = dict(ratings)
 

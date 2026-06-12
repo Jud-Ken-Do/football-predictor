@@ -322,17 +322,17 @@ Scores/probs are swapped when the row orientation flips but `lam_home`/`lam_away
 
 **R1. Log-linear (geometric) ensemble pooling.** Replace `α·p_xgb + (1−α)·p_bp` with `softmax(α·log p_xgb + (1−α)·log p_bp)`. Better calibrated for combining probabilistic models, composes cleanly with temperature scaling, and folding the wc_context nudges into the same log-space pipeline eliminates the negative-probability bug class entirely (C8, W5).
 
-**R2. Persistent team strength per tournament simulation.** Draw each team's log-λ perturbation **once per simulation** from the Kalman posterior instead of per match. Correlating a team's performance across its own matches materially fattens the tails of "dark horse deep run" probabilities — the main thing the simulator exists to quantify.
+**✅ R2 (DONE 2026-06-12). Persistent team strength per tournament simulation.** Draw each team's log-λ perturbation **once per simulation** from the Kalman posterior instead of per match. Correlating a team's performance across its own matches materially fattens the tails of "dark horse deep run" probabilities — the main thing the simulator exists to quantify.
 
 **R3. Out-of-time K-fold stacking for T and α.** The single 20% chronological tail is high-variance for fitting the temperature and 4 context weights. Pool out-of-sample predictions across several chronological folds and fit the calibration layer once on the pooled set — fixes the backtest/production wiring divergence as a side effect.
 
 **R4. Joint 4-d Kalman update per match.** Stack `[att_h, def_h, att_a, def_a]`, one 2-observation update with the full Jacobian — learns cross-team correlations and produces a λ_h/λ_a covariance the MC resampler can consume (pairs with R2 and B1).
 
-**R5. Margin-of-victory Elo.** Standard World Football Elo multiplies K by a goal-difference factor; a 5–0 and 1–0 currently update identically. Among the best-validated cheap improvements for football Elo — two lines in `_build_cache`.
+**✅ R5 (DONE 2026-06-12). Margin-of-victory Elo.** Standard World Football Elo multiplies K by a goal-difference factor; a 5–0 and 1–0 currently update identically. Among the best-validated cheap improvements for football Elo — two lines in `_build_cache`.
 
 **R6. Canonical-name registry + ingress validation.** One `canonical(team)` function applied at every data boundary, plus a startup check asserting each of the 48 WC teams has ≥30 training matches and a hit in every lookup table (odds, rankings, transfermarkt, xG). Three of the four worst data bugs in this review are silent-name-miss bugs.
 
-**R7. Shared `dc_outcome_probs(lam_h, lam_a, rho)` helper.** Three places re-expand λ into outcome probs without the Dixon-Coles correction (`wc_context.poisson_proba`, `predict_proba_mcmc`, the MC simulator). One shared helper makes draw handling consistent across MAP, MCMC, post-processing, and simulation.
+**✅ R7 (DONE 2026-06-12). Shared `dc_outcome_probs(lam_h, lam_a, rho)` helper.** Three places re-expand λ into outcome probs without the Dixon-Coles correction (`wc_context.poisson_proba`, `predict_proba_mcmc`, the MC simulator). One shared helper makes draw handling consistent across MAP, MCMC, post-processing, and simulation.
 
 **R8. Joint submission optimisation.** The third-place pool couples groups: the optimal scoreline in group A depends on tips in groups B–L. After per-group optimisation, re-run `estimate_advance_probs` conditioned on the chosen scorelines and do a second pass.
 

@@ -1,7 +1,7 @@
 {
   "Algeria": {
     "team_id": 1532,
-    "fetched_at": "2026-06-11T13:42:57Z",
+    "fetched_at": "2026-06-12T09:24:39Z",
     "fixtures": [
       {
         "fixture": {
@@ -1407,7 +1407,7 @@
   },
   "Argentina": {
     "team_id": 26,
-    "fetched_at": "2026-06-11T13:42:58Z",
+    "fetched_at": "2026-06-12T09:24:40Z",
     "fixtures": [
       {
         "fixture": {
@@ -2813,7 +2813,7 @@
   },
   "Australia": {
     "team_id": 20,
-    "fetched_at": "2026-06-11T13:42:58Z",
+    "fetched_at": "2026-06-12T09:24:40Z",
     "fixtures": [
       {
         "fixture": {
@@ -4219,7 +4219,7 @@
   },
   "Austria": {
     "team_id": 775,
-    "fetched_at": "2026-06-11T13:42:59Z",
+    "fetched_at": "2026-06-12T09:24:41Z",
     "fixtures": [
       {
         "fixture": {
@@ -5625,7 +5625,7 @@
   },
   "Belgium": {
     "team_id": 1,
-    "fetched_at": "2026-06-11T13:43:00Z",
+    "fetched_at": "2026-06-12T09:24:41Z",
     "fixtures": [
       {
         "fixture": {
@@ -7031,7 +7031,7 @@
   },
   "Bosnia & Herzegovina": {
     "team_id": 1113,
-    "fetched_at": "2026-06-11T13:43:00Z",
+    "fetched_at": "2026-06-12T09:24:42Z",
     "fixtures": [
       {
         "fixture": {
@@ -8437,7 +8437,7 @@
   },
   "Brazil": {
     "team_id": 6,
-    "fetched_at": "2026-06-11T13:43:01Z",
+    "fetched_at": "2026-06-12T09:24:43Z",
     "fixtures": [
       {
         "fixture": {
@@ -9843,7 +9843,7 @@
   },
   "Canada": {
     "team_id": 5529,
-    "fetched_at": "2026-06-11T13:43:02Z",
+    "fetched_at": "2026-06-12T09:24:43Z",
     "fixtures": [
       {
         "fixture": {
@@ -11249,7 +11249,7 @@
   },
   "Cape Verde Islands": {
     "team_id": 1533,
-    "fetched_at": "2026-06-11T13:43:02Z",
+    "fetched_at": "2026-06-12T09:24:44Z",
     "fixtures": [
       {
         "fixture": {
@@ -12655,7 +12655,7 @@
   },
   "Colombia": {
     "team_id": 8,
-    "fetched_at": "2026-06-11T13:43:03Z",
+    "fetched_at": "2026-06-12T09:24:45Z",
     "fixtures": [
       {
         "fixture": {
@@ -14061,7 +14061,7 @@
   },
   "Congo DR": {
     "team_id": 1508,
-    "fetched_at": "2026-06-11T13:43:04Z",
+    "fetched_at": "2026-06-12T09:24:45Z",
     "fixtures": [
       {
         "fixture": {
@@ -15467,7 +15467,7 @@
   },
   "Croatia": {
     "team_id": 3,
-    "fetched_at": "2026-06-11T13:43:04Z",
+    "fetched_at": "2026-06-12T09:24:46Z",
     "fixtures": [
       {
         "fixture": {
@@ -16873,7 +16873,7 @@
   },
   "Curaçao": {
     "team_id": 5530,
-    "fetched_at": "2026-06-11T13:43:05Z",
+    "fetched_at": "2026-06-12T09:24:46Z",
     "fixtures": [
       {
         "fixture": {
@@ -18279,8 +18279,78 @@
   },
   "Czech Republic": {
     "team_id": 770,
-    "fetched_at": "2026-06-11T13:43:06Z",
+    "fetched_at": "2026-06-12T09:24:47Z",
     "fixtures": [
+      {
+        "fixture": {
+          "id": 1538999,
+          "referee": "Amin Mohamed Omar, Egypt",
+          "timezone": "UTC",
+          "date": "2026-06-12T02:00:00+00:00",
+          "timestamp": 1781229600,
+          "periods": {
+            "first": 1781229600,
+            "second": 1781233200
+          },
+          "venue": {
+            "id": 1076,
+            "name": "Estadio Akron",
+            "city": "Guadalajara"
+          },
+          "status": {
+            "long": "Match Finished",
+            "short": "FT",
+            "elapsed": 90,
+            "extra": 7
+          }
+        },
+        "league": {
+          "id": 1,
+          "name": "World Cup",
+          "country": "World",
+          "logo": "https://media.api-sports.io/football/leagues/1.png",
+          "flag": null,
+          "season": 2026,
+          "round": "Group Stage - 1",
+          "standings": true
+        },
+        "teams": {
+          "home": {
+            "id": 17,
+            "name": "South Korea",
+            "logo": "https://media.api-sports.io/football/teams/17.png",
+            "winner": true
+          },
+          "away": {
+            "id": 770,
+            "name": "Czech Republic",
+            "logo": "https://media.api-sports.io/football/teams/770.png",
+            "winner": false
+          }
+        },
+        "goals": {
+          "home": 2,
+          "away": 1
+        },
+        "score": {
+          "halftime": {
+            "home": 0,
+            "away": 0
+          },
+          "fulltime": {
+            "home": 2,
+            "away": 1
+          },
+          "extratime": {
+            "home": null,
+            "away": null
+          },
+          "penalty": {
+            "home": null,
+            "away": null
+          }
+        }
+      },
       {
         "fixture": {
           "id": 1542893,
@@ -19610,82 +19680,12 @@
             "away": null
           }
         }
-      },
-      {
-        "fixture": {
-          "id": 1172895,
-          "referee": "Orel Grinfeeld, Israel",
-          "timezone": "UTC",
-          "date": "2024-09-07T16:00:00+00:00",
-          "timestamp": 1725724800,
-          "periods": {
-            "first": 1725724800,
-            "second": 1725728400
-          },
-          "venue": {
-            "id": 2302,
-            "name": "Mikheil Meskhis sakhelobis Stadioni",
-            "city": "Tbilisi"
-          },
-          "status": {
-            "long": "Match Finished",
-            "short": "FT",
-            "elapsed": 90,
-            "extra": null
-          }
-        },
-        "league": {
-          "id": 5,
-          "name": "UEFA Nations League",
-          "country": "World",
-          "logo": "https://media.api-sports.io/football/leagues/5.png",
-          "flag": null,
-          "season": 2024,
-          "round": "League B - 1",
-          "standings": true
-        },
-        "teams": {
-          "home": {
-            "id": 1104,
-            "name": "Georgia",
-            "logo": "https://media.api-sports.io/football/teams/1104.png",
-            "winner": true
-          },
-          "away": {
-            "id": 770,
-            "name": "Czech Republic",
-            "logo": "https://media.api-sports.io/football/teams/770.png",
-            "winner": false
-          }
-        },
-        "goals": {
-          "home": 4,
-          "away": 1
-        },
-        "score": {
-          "halftime": {
-            "home": 1,
-            "away": 0
-          },
-          "fulltime": {
-            "home": 4,
-            "away": 1
-          },
-          "extratime": {
-            "home": null,
-            "away": null
-          },
-          "penalty": {
-            "home": null,
-            "away": null
-          }
-        }
       }
     ]
   },
   "Ecuador": {
     "team_id": 2382,
-    "fetched_at": "2026-06-11T13:43:07Z",
+    "fetched_at": "2026-06-12T09:24:48Z",
     "fixtures": [
       {
         "fixture": {
@@ -21091,7 +21091,7 @@
   },
   "Egypt": {
     "team_id": 32,
-    "fetched_at": "2026-06-11T13:43:08Z",
+    "fetched_at": "2026-06-12T09:24:48Z",
     "fixtures": [
       {
         "fixture": {
@@ -22497,7 +22497,7 @@
   },
   "England": {
     "team_id": 10,
-    "fetched_at": "2026-06-11T13:43:08Z",
+    "fetched_at": "2026-06-12T09:24:50Z",
     "fixtures": [
       {
         "fixture": {
@@ -23903,7 +23903,7 @@
   },
   "France": {
     "team_id": 2,
-    "fetched_at": "2026-06-11T13:43:09Z",
+    "fetched_at": "2026-06-12T09:24:51Z",
     "fixtures": [
       {
         "fixture": {
@@ -25309,7 +25309,7 @@
   },
   "Germany": {
     "team_id": 25,
-    "fetched_at": "2026-06-11T13:43:10Z",
+    "fetched_at": "2026-06-12T09:24:51Z",
     "fixtures": [
       {
         "fixture": {
@@ -26715,7 +26715,7 @@
   },
   "Ghana": {
     "team_id": 1504,
-    "fetched_at": "2026-06-11T13:43:11Z",
+    "fetched_at": "2026-06-12T09:24:52Z",
     "fixtures": [
       {
         "fixture": {
@@ -28121,7 +28121,7 @@
   },
   "Haiti": {
     "team_id": 2386,
-    "fetched_at": "2026-06-11T13:43:11Z",
+    "fetched_at": "2026-06-12T09:24:53Z",
     "fixtures": [
       {
         "fixture": {
@@ -29527,7 +29527,7 @@
   },
   "Iran": {
     "team_id": 22,
-    "fetched_at": "2026-06-11T13:43:12Z",
+    "fetched_at": "2026-06-12T09:24:53Z",
     "fixtures": [
       {
         "fixture": {
@@ -30933,7 +30933,7 @@
   },
   "Iraq": {
     "team_id": 1567,
-    "fetched_at": "2026-06-11T13:43:13Z",
+    "fetched_at": "2026-06-12T09:24:54Z",
     "fixtures": [
       {
         "fixture": {
@@ -32339,7 +32339,7 @@
   },
   "Ivory Coast": {
     "team_id": 1501,
-    "fetched_at": "2026-06-11T13:43:14Z",
+    "fetched_at": "2026-06-12T09:24:55Z",
     "fixtures": [
       {
         "fixture": {
@@ -33745,7 +33745,7 @@
   },
   "Japan": {
     "team_id": 12,
-    "fetched_at": "2026-06-11T13:43:14Z",
+    "fetched_at": "2026-06-12T09:24:56Z",
     "fixtures": [
       {
         "fixture": {
@@ -35151,7 +35151,7 @@
   },
   "Jordan": {
     "team_id": 1548,
-    "fetched_at": "2026-06-11T13:43:15Z",
+    "fetched_at": "2026-06-12T09:24:56Z",
     "fixtures": [
       {
         "fixture": {
@@ -36557,8 +36557,78 @@
   },
   "Mexico": {
     "team_id": 16,
-    "fetched_at": "2026-06-11T13:43:16Z",
+    "fetched_at": "2026-06-12T09:24:57Z",
     "fixtures": [
+      {
+        "fixture": {
+          "id": 1489369,
+          "referee": "Wilton Pereira Sampaio, Brazil",
+          "timezone": "UTC",
+          "date": "2026-06-11T19:00:00+00:00",
+          "timestamp": 1781204400,
+          "periods": {
+            "first": 1781204400,
+            "second": 1781208000
+          },
+          "venue": {
+            "id": 1069,
+            "name": "Estadio Azteca",
+            "city": "Mexico City"
+          },
+          "status": {
+            "long": "Match Finished",
+            "short": "FT",
+            "elapsed": 90,
+            "extra": 8
+          }
+        },
+        "league": {
+          "id": 1,
+          "name": "World Cup",
+          "country": "World",
+          "logo": "https://media.api-sports.io/football/leagues/1.png",
+          "flag": null,
+          "season": 2026,
+          "round": "Group Stage - 1",
+          "standings": true
+        },
+        "teams": {
+          "home": {
+            "id": 16,
+            "name": "Mexico",
+            "logo": "https://media.api-sports.io/football/teams/16.png",
+            "winner": true
+          },
+          "away": {
+            "id": 1531,
+            "name": "South Africa",
+            "logo": "https://media.api-sports.io/football/teams/1531.png",
+            "winner": false
+          }
+        },
+        "goals": {
+          "home": 2,
+          "away": 0
+        },
+        "score": {
+          "halftime": {
+            "home": 1,
+            "away": 0
+          },
+          "fulltime": {
+            "home": 2,
+            "away": 0
+          },
+          "extratime": {
+            "home": null,
+            "away": null
+          },
+          "penalty": {
+            "home": null,
+            "away": null
+          }
+        }
+      },
       {
         "fixture": {
           "id": 1528284,
@@ -37888,82 +37958,12 @@
             "away": null
           }
         }
-      },
-      {
-        "fixture": {
-          "id": 1371356,
-          "referee": "Oshane Anthony Nation",
-          "timezone": "UTC",
-          "date": "2025-06-15T02:15:00+00:00",
-          "timestamp": 1749953700,
-          "periods": {
-            "first": 1749953700,
-            "second": 1749957300
-          },
-          "venue": {
-            "id": null,
-            "name": "SoFi Stadium",
-            "city": "Inglewood, California"
-          },
-          "status": {
-            "long": "Match Finished",
-            "short": "FT",
-            "elapsed": 90,
-            "extra": 7
-          }
-        },
-        "league": {
-          "id": 22,
-          "name": "CONCACAF Gold Cup",
-          "country": "World",
-          "logo": "https://media.api-sports.io/football/leagues/22.png",
-          "flag": null,
-          "season": 2025,
-          "round": "Group Stage - 1",
-          "standings": true
-        },
-        "teams": {
-          "home": {
-            "id": 16,
-            "name": "Mexico",
-            "logo": "https://media.api-sports.io/football/teams/16.png",
-            "winner": true
-          },
-          "away": {
-            "id": 5532,
-            "name": "Dominican Republic",
-            "logo": "https://media.api-sports.io/football/teams/5532.png",
-            "winner": false
-          }
-        },
-        "goals": {
-          "home": 3,
-          "away": 2
-        },
-        "score": {
-          "halftime": {
-            "home": 1,
-            "away": 0
-          },
-          "fulltime": {
-            "home": 3,
-            "away": 2
-          },
-          "extratime": {
-            "home": null,
-            "away": null
-          },
-          "penalty": {
-            "home": null,
-            "away": null
-          }
-        }
       }
     ]
   },
   "Morocco": {
     "team_id": 31,
-    "fetched_at": "2026-06-11T13:43:16Z",
+    "fetched_at": "2026-06-12T09:24:58Z",
     "fixtures": [
       {
         "fixture": {
@@ -39369,7 +39369,7 @@
   },
   "Netherlands": {
     "team_id": 1118,
-    "fetched_at": "2026-06-11T13:43:17Z",
+    "fetched_at": "2026-06-12T09:24:58Z",
     "fixtures": [
       {
         "fixture": {
@@ -40775,7 +40775,7 @@
   },
   "New Zealand": {
     "team_id": 4673,
-    "fetched_at": "2026-06-11T13:43:18Z",
+    "fetched_at": "2026-06-12T09:24:59Z",
     "fixtures": [
       {
         "fixture": {
@@ -42181,7 +42181,7 @@
   },
   "Norway": {
     "team_id": 1090,
-    "fetched_at": "2026-06-11T13:43:18Z",
+    "fetched_at": "2026-06-12T09:25:00Z",
     "fixtures": [
       {
         "fixture": {
@@ -43587,7 +43587,7 @@
   },
   "Panama": {
     "team_id": 11,
-    "fetched_at": "2026-06-11T13:43:19Z",
+    "fetched_at": "2026-06-12T09:25:00Z",
     "fixtures": [
       {
         "fixture": {
@@ -44993,7 +44993,7 @@
   },
   "Paraguay": {
     "team_id": 2380,
-    "fetched_at": "2026-06-11T13:43:20Z",
+    "fetched_at": "2026-06-12T09:25:01Z",
     "fixtures": [
       {
         "fixture": {
@@ -46399,7 +46399,7 @@
   },
   "Portugal": {
     "team_id": 27,
-    "fetched_at": "2026-06-11T13:43:20Z",
+    "fetched_at": "2026-06-12T09:25:01Z",
     "fixtures": [
       {
         "fixture": {
@@ -47805,7 +47805,7 @@
   },
   "Qatar": {
     "team_id": 1569,
-    "fetched_at": "2026-06-11T13:43:21Z",
+    "fetched_at": "2026-06-12T09:25:02Z",
     "fixtures": [
       {
         "fixture": {
@@ -49211,7 +49211,7 @@
   },
   "Saudi Arabia": {
     "team_id": 23,
-    "fetched_at": "2026-06-11T13:43:22Z",
+    "fetched_at": "2026-06-12T09:25:03Z",
     "fixtures": [
       {
         "fixture": {
@@ -50617,7 +50617,7 @@
   },
   "Scotland": {
     "team_id": 1108,
-    "fetched_at": "2026-06-11T13:43:22Z",
+    "fetched_at": "2026-06-12T09:25:03Z",
     "fixtures": [
       {
         "fixture": {
@@ -52023,7 +52023,7 @@
   },
   "Senegal": {
     "team_id": 13,
-    "fetched_at": "2026-06-11T13:43:23Z",
+    "fetched_at": "2026-06-12T09:25:05Z",
     "fixtures": [
       {
         "fixture": {
@@ -53429,8 +53429,78 @@
   },
   "South Africa": {
     "team_id": 1531,
-    "fetched_at": "2026-06-11T13:43:24Z",
+    "fetched_at": "2026-06-12T09:25:05Z",
     "fixtures": [
+      {
+        "fixture": {
+          "id": 1489369,
+          "referee": "Wilton Pereira Sampaio, Brazil",
+          "timezone": "UTC",
+          "date": "2026-06-11T19:00:00+00:00",
+          "timestamp": 1781204400,
+          "periods": {
+            "first": 1781204400,
+            "second": 1781208000
+          },
+          "venue": {
+            "id": 1069,
+            "name": "Estadio Azteca",
+            "city": "Mexico City"
+          },
+          "status": {
+            "long": "Match Finished",
+            "short": "FT",
+            "elapsed": 90,
+            "extra": 8
+          }
+        },
+        "league": {
+          "id": 1,
+          "name": "World Cup",
+          "country": "World",
+          "logo": "https://media.api-sports.io/football/leagues/1.png",
+          "flag": null,
+          "season": 2026,
+          "round": "Group Stage - 1",
+          "standings": true
+        },
+        "teams": {
+          "home": {
+            "id": 16,
+            "name": "Mexico",
+            "logo": "https://media.api-sports.io/football/teams/16.png",
+            "winner": true
+          },
+          "away": {
+            "id": 1531,
+            "name": "South Africa",
+            "logo": "https://media.api-sports.io/football/teams/1531.png",
+            "winner": false
+          }
+        },
+        "goals": {
+          "home": 2,
+          "away": 0
+        },
+        "score": {
+          "halftime": {
+            "home": 1,
+            "away": 0
+          },
+          "fulltime": {
+            "home": 2,
+            "away": 0
+          },
+          "extratime": {
+            "home": null,
+            "away": null
+          },
+          "penalty": {
+            "home": null,
+            "away": null
+          }
+        }
+      },
       {
         "fixture": {
           "id": 1550809,
@@ -54760,65 +54830,71 @@
             "away": null
           }
         }
-      },
+      }
+    ]
+  },
+  "South Korea": {
+    "team_id": 17,
+    "fetched_at": "2026-06-12T09:25:06Z",
+    "fixtures": [
       {
         "fixture": {
-          "id": 1378510,
-          "referee": "Hillary Hambaba",
+          "id": 1538999,
+          "referee": "Amin Mohamed Omar, Egypt",
           "timezone": "UTC",
-          "date": "2025-06-13T16:00:00+00:00",
-          "timestamp": 1749830400,
+          "date": "2026-06-12T02:00:00+00:00",
+          "timestamp": 1781229600,
           "periods": {
-            "first": 1749830400,
-            "second": 1749834000
+            "first": 1781229600,
+            "second": 1781233200
           },
           "venue": {
-            "id": 21589,
-            "name": "Free State Toyota Stadium",
-            "city": "Bloemfontein, FS"
+            "id": 1076,
+            "name": "Estadio Akron",
+            "city": "Guadalajara"
           },
           "status": {
             "long": "Match Finished",
             "short": "FT",
             "elapsed": 90,
-            "extra": 5
+            "extra": 7
           }
         },
         "league": {
-          "id": 859,
-          "name": "COSAFA Cup",
+          "id": 1,
+          "name": "World Cup",
           "country": "World",
-          "logo": "https://media.api-sports.io/football/leagues/859.png",
+          "logo": "https://media.api-sports.io/football/leagues/1.png",
           "flag": null,
-          "season": 2025,
-          "round": "Semi-finals",
-          "standings": false
+          "season": 2026,
+          "round": "Group Stage - 1",
+          "standings": true
         },
         "teams": {
           "home": {
-            "id": 1531,
-            "name": "South Africa",
-            "logo": "https://media.api-sports.io/football/teams/1531.png",
+            "id": 17,
+            "name": "South Korea",
+            "logo": "https://media.api-sports.io/football/teams/17.png",
             "winner": true
           },
           "away": {
-            "id": 1524,
-            "name": "Comoros",
-            "logo": "https://media.api-sports.io/football/teams/1524.png",
+            "id": 770,
+            "name": "Czech Republic",
+            "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": false
           }
         },
         "goals": {
-          "home": 3,
+          "home": 2,
           "away": 1
         },
         "score": {
           "halftime": {
-            "home": 2,
-            "away": 1
+            "home": 0,
+            "away": 0
           },
           "fulltime": {
-            "home": 3,
+            "home": 2,
             "away": 1
           },
           "extratime": {
@@ -54830,13 +54906,7 @@
             "away": null
           }
         }
-      }
-    ]
-  },
-  "South Korea": {
-    "team_id": 17,
-    "fetched_at": "2026-06-11T13:43:24Z",
-    "fixtures": [
+      },
       {
         "fixture": {
           "id": 1544807,
@@ -56166,82 +56236,12 @@
             "away": null
           }
         }
-      },
-      {
-        "fixture": {
-          "id": 1218512,
-          "referee": "R. Lutfullin",
-          "timezone": "UTC",
-          "date": "2024-10-15T11:00:00+00:00",
-          "timestamp": 1728990000,
-          "periods": {
-            "first": 1728990000,
-            "second": 1728993600
-          },
-          "venue": {
-            "id": null,
-            "name": "Seoul World Cup Stadium",
-            "city": "Seoul"
-          },
-          "status": {
-            "long": "Match Finished",
-            "short": "FT",
-            "elapsed": 90,
-            "extra": 8
-          }
-        },
-        "league": {
-          "id": 30,
-          "name": "World Cup - Qualification Asia",
-          "country": "World",
-          "logo": "https://media.api-sports.io/football/leagues/30.png",
-          "flag": null,
-          "season": 2026,
-          "round": "3rd Round - 4",
-          "standings": true
-        },
-        "teams": {
-          "home": {
-            "id": 17,
-            "name": "South Korea",
-            "logo": "https://media.api-sports.io/football/teams/17.png",
-            "winner": true
-          },
-          "away": {
-            "id": 1567,
-            "name": "Iraq",
-            "logo": "https://media.api-sports.io/football/teams/1567.png",
-            "winner": false
-          }
-        },
-        "goals": {
-          "home": 3,
-          "away": 2
-        },
-        "score": {
-          "halftime": {
-            "home": 1,
-            "away": 0
-          },
-          "fulltime": {
-            "home": 3,
-            "away": 2
-          },
-          "extratime": {
-            "home": null,
-            "away": null
-          },
-          "penalty": {
-            "home": null,
-            "away": null
-          }
-        }
       }
     ]
   },
   "Spain": {
     "team_id": 9,
-    "fetched_at": "2026-06-11T13:43:25Z",
+    "fetched_at": "2026-06-12T09:25:07Z",
     "fixtures": [
       {
         "fixture": {
@@ -57647,7 +57647,7 @@
   },
   "Sweden": {
     "team_id": 5,
-    "fetched_at": "2026-06-11T13:43:26Z",
+    "fetched_at": "2026-06-12T09:25:07Z",
     "fixtures": [
       {
         "fixture": {
@@ -59053,7 +59053,7 @@
   },
   "Switzerland": {
     "team_id": 15,
-    "fetched_at": "2026-06-11T13:43:27Z",
+    "fetched_at": "2026-06-12T09:25:08Z",
     "fixtures": [
       {
         "fixture": {
@@ -60459,7 +60459,7 @@
   },
   "Tunisia": {
     "team_id": 28,
-    "fetched_at": "2026-06-11T13:43:28Z",
+    "fetched_at": "2026-06-12T09:25:08Z",
     "fixtures": [
       {
         "fixture": {
@@ -61865,7 +61865,7 @@
   },
   "Türkiye": {
     "team_id": 777,
-    "fetched_at": "2026-06-11T13:43:28Z",
+    "fetched_at": "2026-06-12T09:25:09Z",
     "fixtures": [
       {
         "fixture": {
@@ -63271,7 +63271,7 @@
   },
   "USA": {
     "team_id": 2384,
-    "fetched_at": "2026-06-11T13:43:29Z",
+    "fetched_at": "2026-06-12T09:25:10Z",
     "fixtures": [
       {
         "fixture": {
@@ -64677,7 +64677,7 @@
   },
   "Uruguay": {
     "team_id": 7,
-    "fetched_at": "2026-06-11T13:43:30Z",
+    "fetched_at": "2026-06-12T09:25:10Z",
     "fixtures": [
       {
         "fixture": {
@@ -66083,7 +66083,7 @@
   },
   "Uzbekistan": {
     "team_id": 1568,
-    "fetched_at": "2026-06-11T13:43:31Z",
+    "fetched_at": "2026-06-12T09:25:11Z",
     "fixtures": [
       {
         "fixture": {

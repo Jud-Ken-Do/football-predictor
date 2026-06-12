@@ -476,7 +476,7 @@ with st.sidebar:
     # ── Model stack info ──────────────────────────────────────────────────────
     with st.expander("🧠 Model stack", expanded=False):
         st.markdown(
-            "1. XGBoost · 13 modules · ~120 features  \n"
+            "1. XGBoost · 11 modules · ~110 features  \n"
             "2. Temperature Scaling (Guo 2017)  \n"
             "3. Bayesian Hierarchical Poisson MAP  \n"
             "4. Context-Adaptive Ensemble  \n"
@@ -541,6 +541,7 @@ def _get_pair_probs():
             ctx_row,
             home_team=row["home_team"],
             away_team=row["away_team"],
+            rho=bp._rho,
         )
         prob_cache[(row["home_team"], row["away_team"])] = (p_h, p_d, p_a)
         lam_cache[(row["home_team"], row["away_team"])] = (lam_h_adj, lam_a_adj)

@@ -61,24 +61,15 @@ _MARKET_BLEND: float = 0.20
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _poisson_pmf(k: int, lam: float) -> float:
-    return math.exp(-lam) * (lam ** k) / math.factorial(k)
+def poisson_proba(lam_h: float, lam_a: float, rho: float = 0.0) -> tuple[float, float, float]:
+    """Recompute (p_home_win, p_draw, p_away_win) from Poisson goal rates.
 
-
-def poisson_proba(lam_h: float, lam_a: float) -> tuple[float, float, float]:
-    """Recompute (p_home_win, p_draw, p_away_win) from Poisson goal rates."""
-    ph = pd_ = pa = 0.0
-    for h in range(_MAX_GOALS + 1):
-        for a in range(_MAX_GOALS + 1):
-            p = _poisson_pmf(h, lam_h) * _poisson_pmf(a, lam_a)
-            if h > a:
-                ph += p
-            elif h == a:
-                pd_ += p
-            else:
-                pa += p
-    total = max(ph + pd_ + pa, 1e-10)
-    return ph / total, pd_ / total, pa / total
+    Delegates to the shared DC-corrected expansion so the post-processing
+    deltas use the same probability model as the BayesPoisson leg of the
+    ensemble (previously ρ was dropped here, biasing the draw-cell deltas).
+    """
+    from football_predictor.models.bayesian_poisson import dc_outcome_probs
+    return dc_outcome_probs(lam_h, lam_a, rho=rho, max_goals=_MAX_GOALS)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -300,10 +291,13 @@ def apply_to_match(
     apply_venue: bool = True,
     home_team: str = "",
     away_team: str = "",
+    rho: float = 0.0,
 ) -> tuple[float, float, float, float, float]:
     """Full post-processing pipeline for one match.
 
-    Order: venue λ adjustment → quality nudge (sofifa+api_form) → player absence.
+    Order: venue λ adjustment → quality nudge (sofifa+api_form+tm) → player absence.
+    rho: the fitted Dixon-Coles correlation (pass bp._rho) so the Poisson
+    deltas share the ensemble's probability model.
     Returns (p_h, p_d, p_a, lam_h_adj, lam_a_adj).
     """
     if apply_venue:
@@ -314,8 +308,8 @@ def apply_to_match(
     # Market odds blend: AH + O/U → market-implied λ blended with model λ
     lam_h_adj, lam_a_adj = market_odds_adjust(lam_h_adj, lam_a_adj, ctx_row)
 
-    bp_h, bp_d, bp_a = poisson_proba(lam_h_adj, lam_a_adj)
-    bp_h_orig, bp_d_orig, bp_a_orig = poisson_proba(lam_h, lam_a)
+    bp_h, bp_d, bp_a = poisson_proba(lam_h_adj, lam_a_adj, rho=rho)
+    bp_h_orig, bp_d_orig, bp_a_orig = poisson_proba(lam_h, lam_a, rho=rho)
 
     p_h = ens_p_h + (bp_h - bp_h_orig)
     p_d = ens_p_d + (bp_d - bp_d_orig)

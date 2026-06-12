@@ -263,6 +263,7 @@ def step_predict(xgb, temp_cal, bp, ensemble, all_data, train_df, _bp_proba_fn) 
             apply_venue=True,
             home_team=home,
             away_team=away,
+            rho=bp._rho,
         )
         results.append({
             **f,
@@ -326,12 +327,15 @@ def step_simulate(match_data: list[dict], n_sims: int, xgb, temp_cal, bp, ensemb
     _ok(f"{len(prob_cache):,} pair probabilities pre-computed (symmetrised)", _tick(t0))
 
     # Monte Carlo
-    from scripts.predict_wc2026 import simulate_tournament
+    from scripts.predict_wc2026 import simulate_tournament, build_team_sigmas
     t1 = time.time()
     round_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
     def ko_predictor(home: str, away: str) -> tuple:
         return prob_cache.get((home, away), (0.4, 0.2, 0.4))
+
+    # Persistent team strength: one deviation per team per simulation (R2)
+    team_sigmas = build_team_sigmas(match_data)
 
     for i in range(n_sims):
         if i > 0 and i % 10_000 == 0:
@@ -339,7 +343,7 @@ def step_simulate(match_data: list[dict], n_sims: int, xgb, temp_cal, bp, ensemb
             rate = i / elapsed
             eta = (n_sims - i) / rate
             print(f"  ... {i:,}/{n_sims:,} sims  ({rate:.0f}/s, ETA {eta:.0f}s)", flush=True)
-        reached = simulate_tournament(match_data, ko_predictor)
+        reached = simulate_tournament(match_data, ko_predictor, team_sigmas=team_sigmas)
         for team, rnd in reached.items():
             round_counts[team][rnd] += 1
 

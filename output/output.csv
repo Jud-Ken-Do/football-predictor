@@ -8,7 +8,7 @@ match_id,group,team1,team2,score1,score2
 7,B,Canada,Bosnia and Herzegovina,1,0
 8,B,Canada,Qatar,1,0
 9,B,Canada,Switzerland,0,1
-10,B,Bosnia and Herzegovina,Qatar,0,1
+10,B,Bosnia and Herzegovina,Qatar,1,0
 11,B,Bosnia and Herzegovina,Switzerland,0,1
 12,B,Qatar,Switzerland,0,1
 13,C,Brazil,Morocco,1,0
@@ -21,7 +21,7 @@ match_id,group,team1,team2,score1,score2
 20,D,United States,Australia,1,0
 21,D,United States,Turkiye,1,0
 22,D,Paraguay,Australia,0,1
-23,D,Paraguay,Turkiye,1,0
+23,D,Paraguay,Turkiye,0,1
 24,D,Australia,Turkiye,1,0
 25,E,Germany,Curacao,1,0
 26,E,Germany,Ivory Coast,1,0
@@ -39,7 +39,7 @@ match_id,group,team1,team2,score1,score2
 38,G,Belgium,Iran,1,0
 39,G,Belgium,New Zealand,1,0
 40,G,Egypt,Iran,0,1
-41,G,Egypt,New Zealand,0,1
+41,G,Egypt,New Zealand,1,0
 42,G,Iran,New Zealand,1,0
 43,H,Spain,Cape Verde,1,0
 44,H,Spain,Saudi Arabia,1,0

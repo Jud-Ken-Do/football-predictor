@@ -16,6 +16,7 @@ Actual results integration:
 import argparse
 import itertools
 import json
+import math
 import time
 import warnings
 warnings.filterwarnings("ignore")
@@ -366,6 +367,7 @@ def predict_group_stage(
             apply_venue=True,
             home_team=home,
             away_team=away,
+            rho=bp._rho,
         )
 
         # Kalman uncertainty in log(λ): σ_log(λ_h) ≈ √(σ²_att_h + σ²_def_a)
@@ -389,6 +391,48 @@ def predict_group_stage(
 
 
 # ── Monte Carlo core ──────────────────────────────────────────────────────────
+
+# ── Persistent per-simulation team strength (roadmap R2) ─────────────────────
+# Without this, each match resamples a team's strength independently, so
+# "this team is actually better/worse than the rating says" averages out
+# across rounds — systematically understating favourites' title odds AND
+# dark-horse deep runs. Instead we draw ONE log-strength deviation per team
+# per tournament simulation and apply it to every match the team plays.
+
+# d logit(P_home/P_away) per unit of net log-strength difference, measured
+# numerically on the DC-corrected Poisson grid across λ ∈ [0.7, 2.2]
+# (1.53–1.83, ≈1.7 at typical international λs).
+_STRENGTH_SENS = 1.7
+
+
+def build_team_sigmas(match_data: list[dict]) -> dict[str, float]:
+    """Per-team log-strength std from the Kalman posterior.
+
+    The per-match λ log-std mixes the team's own attack and the opponent's
+    defence uncertainty; dividing by √2 attributes half the variance to the
+    team itself.
+    """
+    acc: dict[str, list[float]] = defaultdict(list)
+    for m in match_data:
+        acc[m["home_team"]].append(float(m.get("kalman_lam_h_log_std", 0.0)))
+        acc[m["away_team"]].append(float(m.get("kalman_lam_a_log_std", 0.0)))
+    return {t: (float(np.mean(v)) / math.sqrt(2.0) if v else 0.0)
+            for t, v in acc.items()}
+
+
+def _strength_shift(p_h: float, p_d: float, p_a: float, d: float) -> tuple[float, float, float]:
+    """Shift home/away win log-odds by κ·d (net log-strength difference),
+    holding the draw mass — same reallocation pattern as quality_nudge."""
+    p_h = max(p_h, 1e-10)
+    p_a = max(p_a, 1e-10)
+    logit = math.log(p_h / p_a) + _STRENGTH_SENS * d
+    ratio = math.exp(logit)
+    ha = p_h + p_a
+    p_h2 = ratio / (1.0 + ratio) * ha
+    p_a2 = ha / (1.0 + ratio)
+    total = p_h2 + p_d + p_a2
+    return p_h2 / total, p_d / total, p_a2 / total
+
 
 def simulate_goals(
     p_home: float,
@@ -490,13 +534,35 @@ def group_standings(teams: list[str], results: list[dict]) -> list[dict]:
     return out
 
 
-def simulate_group_stage(match_data: list[dict]) -> dict[str, list[dict]]:
-    """Simulate all group stage matches; use actual scores for played ones."""
+def simulate_group_stage(
+    match_data: list[dict],
+    z: dict[str, float] | None = None,
+    team_sigmas: dict[str, float] | None = None,
+) -> dict[str, list[dict]]:
+    """Simulate all group stage matches; use actual scores for played ones.
+
+    z: per-team log-strength deviations for THIS simulation (persistent
+    across the team's matches). When provided, outcome probabilities are
+    shifted by the strength difference and λs perturbed consistently; the
+    legacy independent per-match λ resampling is suppressed (superseded).
+    """
     group_results: dict[str, list] = defaultdict(list)
 
     for m in match_data:
         if m.get("played"):
             hg, ag = m["actual_home_goals"], m["actual_away_goals"]
+        elif z is not None:
+            home, away = m["home_team"], m["away_team"]
+            d = z.get(home, 0.0) - z.get(away, 0.0)
+            p_h, p_d, p_a = _strength_shift(m["p_home"], m["p_draw"], m["p_away"], d)
+            # Mean-preserving λ perturbation: E[exp(±d/2)] = exp(var_d/8)
+            var_d = 0.0
+            if team_sigmas:
+                var_d = team_sigmas.get(home, 0.0) ** 2 + team_sigmas.get(away, 0.0) ** 2
+            corr = math.exp(-var_d / 8.0)
+            lam_h = m["bp_lam_home"] * math.exp(d / 2.0) * corr
+            lam_a = m["bp_lam_away"] * math.exp(-d / 2.0) * corr
+            hg, ag = simulate_goals(p_h, p_d, p_a, lam_h, lam_a)
         else:
             hg, ag = simulate_goals(
                 m["p_home"], m["p_draw"], m["p_away"],
@@ -635,12 +701,36 @@ def ko_winner(home: str, away: str, predictor) -> str:
         return away
 
 
-def simulate_tournament(match_data: list[dict], predictor) -> dict[str, str]:
-    """One full tournament simulation. Returns team → furthest round reached."""
+def simulate_tournament(
+    match_data: list[dict],
+    predictor,
+    team_sigmas: dict[str, float] | None = None,
+) -> dict[str, str]:
+    """One full tournament simulation. Returns team → furthest round reached.
+
+    team_sigmas: per-team log-strength stds (build_team_sigmas). When given,
+    one strength deviation per team is drawn for the WHOLE simulation and
+    applied to every group and knockout match — correlating a team's
+    performance across rounds (persistent "actually better/worse than rated").
+    """
     reached: dict[str, str] = {t: "group_stage" for grp in GROUPS.values() for t in grp}
 
+    z: dict[str, float] | None = None
+    if team_sigmas:
+        z = {t: np.random.normal(0.0, s) if s > 0.0 else 0.0
+             for t, s in team_sigmas.items()}
+
+        base_predictor = predictor
+
+        def predictor(home: str, away: str) -> tuple[float, float, float]:  # noqa: F811
+            p_h, p_d, p_a = base_predictor(home, away)
+            d = z.get(home, 0.0) - z.get(away, 0.0)
+            if d != 0.0:
+                return _strength_shift(p_h, p_d, p_a, d)
+            return p_h, p_d, p_a
+
     # Group stage
-    standings = simulate_group_stage(match_data)
+    standings = simulate_group_stage(match_data, z=z, team_sigmas=team_sigmas)
     qualifiers = get_qualifiers(standings)
 
     all_qualifiers = (
@@ -831,7 +921,7 @@ def predict_single_match(
     ctx_row = ctx.iloc[0].to_dict() if len(ctx) > 0 else {}
     ph, pd_, pa, lam_h, lam_a = apply_to_match(
         lam_h, lam_a, ens_ph, ens_pd, ens_pa, ctx_row,
-        home_team=home, away_team=away,
+        home_team=home, away_team=away, rho=bp._rho,
     )
 
     # Most likely scorelines (Poisson mass)
@@ -1004,13 +1094,16 @@ def main() -> None:
     # (simulate_goals, ko_winner, tiebreak lots) — seed it once here.
     np.random.seed(args.seed)
 
+    # Persistent team strength: one deviation per team per simulation (R2)
+    team_sigmas = build_team_sigmas(match_data)
+
     def ko_predictor(home: str, away: str) -> tuple[float, float, float]:
         return prob_cache.get((home, away), (0.4, 0.2, 0.4))
 
     # Monte Carlo
     round_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for sim_i in range(args.sims):
-        reached = simulate_tournament(match_data, ko_predictor)
+        reached = simulate_tournament(match_data, ko_predictor, team_sigmas=team_sigmas)
         for team, rnd in reached.items():
             round_counts[team][rnd] += 1
 

@@ -41,6 +41,40 @@ logger = logging.getLogger(__name__)
 _MAX_GOALS = 10
 
 
+def dc_outcome_probs(
+    lam_h: float,
+    lam_a: float,
+    rho: float = 0.0,
+    max_goals: int = _MAX_GOALS,
+) -> tuple[float, float, float]:
+    """(P_home, P_draw, P_away) from a product-Poisson grid with the
+    Dixon-Coles low-score correction applied and the truncated grid
+    renormalised.
+
+    Single shared implementation — previously three places re-expanded λ into
+    outcome probabilities with subtly different draw handling (MAP path with
+    ρ, MCMC path without, wc_context.poisson_proba without), making draws
+    inconsistent across prediction, post-processing, and simulation.
+    """
+    goals = np.arange(max_goals + 1)
+    p_h_vec = poisson.pmf(goals, max(lam_h, 1e-6))
+    p_a_vec = poisson.pmf(goals, max(lam_a, 1e-6))
+    mat = np.outer(p_h_vec, p_a_vec)
+    if rho != 0.0:
+        mat[0, 0] *= max(1.0 - lam_h * lam_a * rho, 1e-8)
+        mat[0, 1] *= max(1.0 + lam_h * rho, 1e-8)
+        mat[1, 0] *= max(1.0 + lam_a * rho, 1e-8)
+        mat[1, 1] *= max(1.0 - rho, 1e-8)
+    # mat[h, a]: rows = home goals, cols = away goals. Home win (h > a) is the
+    # LOWER triangle. NB: the original predict_proba_mcmc labelled np.triu as
+    # the home win — i.e. --mcmc runs silently swapped P(home) and P(away).
+    ph = float(np.tril(mat, k=-1).sum())
+    pd_ = float(np.trace(mat))
+    pa = float(np.triu(mat, k=1).sum())
+    total = max(ph + pd_ + pa, 1e-10)
+    return ph / total, pd_ / total, pa / total
+
+
 class BayesianPoissonModel:
     """MAP-estimated Bayesian Hierarchical Poisson (log-linear additive form).
 
@@ -289,19 +323,8 @@ class BayesianPoissonModel:
         lam_h = self._lambda(home, away, home=not neutral)
         lam_a = self._lambda(away, home, home=False)
 
-        ph = pd_ = pa = 0.0   # pd_ — don't shadow the pandas alias
-        for h in range(_MAX_GOALS + 1):
-            for a in range(_MAX_GOALS + 1):
-                p = poisson.pmf(h, lam_h) * poisson.pmf(a, lam_a) * self._dc_tau(h, a, lam_h, lam_a)
-                if h > a:
-                    ph += p
-                elif h == a:
-                    pd_ += p
-                else:
-                    pa += p
-
-        total = max(ph + pd_ + pa, 1e-10)
-        return {"home_win": ph / total, "draw": pd_ / total, "away_win": pa / total}
+        ph, pd_, pa = dc_outcome_probs(lam_h, lam_a, rho=self._rho)
+        return {"home_win": ph, "draw": pd_, "away_win": pa}
 
     def get_lambdas(self, home: str, away: str, neutral: bool = True) -> tuple[float, float]:
         """(lambda_home, lambda_away) for goal-count simulation."""
@@ -491,27 +514,14 @@ class BayesianPoissonModel:
         lam_h_s = np.exp(mu_s + att_h + dff_a + ha_s * ha_flag)
         lam_a_s = np.exp(mu_s + att_a + dff_h)
 
-        goals = np.arange(_MAX_GOALS + 1)
         ph_acc = pd_acc = pa_acc = 0.0
         for lh, la in zip(lam_h_s, lam_a_s):
-            p_h = poisson.pmf(goals, float(lh))
-            p_a = poisson.pmf(goals, float(la))
-            mat = np.outer(p_h, p_a)
-            # Dixon-Coles low-score correction — previously the MCMC path
-            # silently dropped the fitted ρ, so --mcmc runs lost the draw
-            # boost in the (0,0)/(1,1) cells.
-            if self._rho != 0.0:
-                mat[0, 0] *= self._dc_tau(0, 0, float(lh), float(la))
-                mat[0, 1] *= self._dc_tau(0, 1, float(lh), float(la))
-                mat[1, 0] *= self._dc_tau(1, 0, float(lh), float(la))
-                mat[1, 1] *= self._dc_tau(1, 1, float(lh), float(la))
-            sample_ph = float(np.triu(mat, k=1).sum())
-            sample_pd = float(np.diag(mat).sum())
-            sample_pa = float(np.tril(mat, k=-1).sum())
-            total_s = max(sample_ph + sample_pd + sample_pa, 1e-10)
-            ph_acc += sample_ph / total_s
-            pd_acc += sample_pd / total_s
-            pa_acc += sample_pa / total_s
+            # Shared DC-corrected expansion — keeps the MCMC path's draw
+            # handling identical to MAP/post-processing/simulation.
+            s_ph, s_pd, s_pa = dc_outcome_probs(float(lh), float(la), rho=self._rho)
+            ph_acc += s_ph
+            pd_acc += s_pd
+            pa_acc += s_pa
 
         return {
             "home_win": ph_acc / n_s,
