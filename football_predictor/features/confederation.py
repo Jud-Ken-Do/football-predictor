@@ -18,10 +18,10 @@ TEAM_CONFEDERATION: dict[str, str] = {
     "Scotland": "UEFA", "Wales": "UEFA", "Turkey": "UEFA", "Türkiye": "UEFA", "Greece": "UEFA",
     "Romania": "UEFA", "Norway": "UEFA", "Finland": "UEFA", "Albania": "UEFA",
     "Georgia": "UEFA", "Montenegro": "UEFA", "North Macedonia": "UEFA",
-    "Bosnia and Herzegovina": "UEFA", "Kosovo": "UEFA", "Iceland": "UEFA",
+    "Bosnia and Herzegovina": "UEFA", "Bosnia-Herzegovina": "UEFA", "Kosovo": "UEFA", "Iceland": "UEFA",
     "Morocco": "CAF", "Senegal": "CAF", "Nigeria": "CAF", "Ghana": "CAF",
-    "Cameroon": "CAF", "Egypt": "CAF", "Tunisia": "CAF", "Ivory Coast": "CAF",
-    "Algeria": "CAF", "Mali": "CAF", "South Africa": "CAF", "DR Congo": "CAF",
+    "Cameroon": "CAF", "Egypt": "CAF", "Tunisia": "CAF", "Ivory Coast": "CAF", "Côte d'Ivoire": "CAF",
+    "Algeria": "CAF", "Mali": "CAF", "South Africa": "CAF", "DR Congo": "CAF", "Congo DR": "CAF",
     "Guinea": "CAF", "Zambia": "CAF", "Burkina Faso": "CAF", "Cape Verde": "CAF",
     "Cabo Verde": "CAF",
     # CONMEBOL
@@ -35,7 +35,7 @@ TEAM_CONFEDERATION: dict[str, str] = {
     "Honduras": "CONCACAF", "El Salvador": "CONCACAF", "Trinidad and Tobago": "CONCACAF",
     "Cuba": "CONCACAF", "Haiti": "CONCACAF", "Curaçao": "CONCACAF",
     # AFC
-    "Japan": "AFC", "South Korea": "AFC", "Iran": "AFC", "IR Iran": "AFC",
+    "Japan": "AFC", "South Korea": "AFC", "Korea Republic": "AFC", "Iran": "AFC", "IR Iran": "AFC",
     "Saudi Arabia": "AFC", "Australia": "AFC", "Qatar": "AFC", "Iraq": "AFC", "Jordan": "AFC",
     "Uzbekistan": "AFC", "United Arab Emirates": "AFC", "Oman": "AFC",
     "China": "AFC", "Indonesia": "AFC", "Vietnam": "AFC", "Thailand": "AFC",

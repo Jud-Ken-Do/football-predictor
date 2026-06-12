@@ -4,7 +4,7 @@ Uses the top-26 players by overall rating per national team as a proxy
 for the actual WC 2026 squad. Covers all 48 WC 2026 teams.
 Returns zeros for teams not in the FC 26 database (none expected).
 
-CSV file: FC26_20250921.csv in the project root.
+CSV file: data/FC26_20250921.csv
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import pandas as pd
 from football_predictor.features.base import FeatureModule
 
 _CSV_FILE = os.path.join(
-    os.path.dirname(__file__), "..", "..", "FC26_20250921.csv"
+    os.path.dirname(__file__), "..", "..", "data", "FC26_20250921.csv"
 )
 
 # Map our canonical WC team names → nationality_name in FC26 dataset

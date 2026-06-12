@@ -1,0 +1,35 @@
+Bayesian Poisson is the half of your model that thinks in goals rather than win/draw/loss. It's where all those λ (lambda) values come from.
+
+Start with Poisson. The Poisson distribution models "how many of a rare-ish event happen in a fixed window" — phone calls per hour, typos per page, and famously goals per match. It takes one input, λ (the expected/average count), and gives you the probability of 0 goals, 1 goal, 2 goals, etc. λ=1.8 means "on average 1.8 goals, most likely 1 or 2." This is why your scorelines cluster low — that's just what Poisson with λ≈1–2 looks like.
+
+Now the football part. Each team gets two hidden numbers:
+- Attack strength — how
+- Defense strength — how many they tend to concede
+
+For a given match, the model combines them:
+λ_home = baseline × home_advantage
+λ_away = baseline × away_attack × home_defense
+So Brazil (strong attack→ high λ for Brazil. Twosolid defenses → low λ both sides → a 0-0 / 1-0 game. That's the
+bp_lam_home/bp_lam_away .
+
+What makes it "Bayesian"se attack/defense numbers to raw data, it starts with a prior — a sensible default belief ("teams are
+roughly average until prs it with evidence. Thisprevents nonsense like a team that played 2 games and won 6-0 getting rated as
+the best attack on earthimates back towardreality. Your home_adv ~ N(0.20, 0.15²) is exactly this — "home advantage is
+probably around 0.20, busting it."
+
+Two refinements in your
+- Dixon-Coles ρ correction — pure Poisson slightly underestimates 0-0 and 1-1
+draws (goals aren't perft up shop at 0-0). The ρterm nudges those low-score cells up. Your ρ ≈ −0.0096.
+- Time decay (half-life)less than one from lastmonth. Older results get down-weighted, with the half-life derived from your
+Kalman q.
+
+Why it's in the stack al problem from differentangles.
+- XGBoost learns complex("teams with this ranking gap + this form + this squad value tend to win") → outputs win/draw/loss
+probabilities directly.
+- Bayesian Poisson is simpler and structural — it only knows
+attack/defense/home, butistributions and exactscorelines, which XGBoost can't.
+
+The ensemble blends them (~73% XGB / 27% BP). XGBoost brings the rich
+features; Bayesian Poisscture and the scorelineprobabilities you need for the submission.
+
+It comes from a well-known 2010 academic paper (Baio & Blangiardo, "Bayesian   hierarchical model for tults") — "hierarchical"because team strengths are drawn from a shared league-wide distribution, which is the prior doing its w

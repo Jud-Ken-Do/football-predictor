@@ -29,7 +29,7 @@ _MATCH_WEIGHTS: dict[str, float] = {
     "Copa America": 1.0,
     "Africa Cup of Nations": 1.0,
     "UEFA Euro": 1.0,
-    "Friendlies": 0.3,
+    "Friendlies": 0.8,
 }
 
 # Map our canonical WC team names → API-Football team names

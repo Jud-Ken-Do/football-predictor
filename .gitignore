@@ -26,3 +26,7 @@ output/*.png
 
 # Other competition submissions (not our code)
 other_submissions/
+
+# Submission package artifacts (full repo copy + zip — regenerate, don't track)
+Occam's Folly/
+Occam's Folly.zip

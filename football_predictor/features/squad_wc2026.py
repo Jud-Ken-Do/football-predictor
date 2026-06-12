@@ -32,7 +32,7 @@ _EUROPEAN = {"ENG", "ESP", "GER", "ITA", "FRA", "NED", "POR", "BEL", "TUR",
 _TOURNAMENT_START = date(2026, 6, 11)
 
 _SQUADS_MD = os.path.join(
-    os.path.dirname(__file__), "..", "..", "world_cup_2026_squads_fifa_2026-06-08.md"
+    os.path.dirname(__file__), "..", "..", "data", "world_cup_2026_squads_fifa_2026-06-08.md"
 )
 
 _TO_EXCEL: dict[str, str] = {

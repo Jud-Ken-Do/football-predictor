@@ -11,18 +11,18 @@ match_id,group,team1,team2,score1,score2
 10,B,Bosnia and Herzegovina,Qatar,1,0
 11,B,Bosnia and Herzegovina,Switzerland,0,1
 12,B,Qatar,Switzerland,0,1
-13,C,Brazil,Morocco,0,0
+13,C,Brazil,Morocco,1,0
 14,C,Brazil,Haiti,1,0
 15,C,Brazil,Scotland,1,0
 16,C,Morocco,Haiti,1,0
 17,C,Morocco,Scotland,1,0
 18,C,Haiti,Scotland,0,1
 19,D,United States,Paraguay,1,0
-20,D,United States,Australia,0,1
+20,D,United States,Australia,1,0
 21,D,United States,Turkiye,1,0
-22,D,Paraguay,Australia,0,1
+22,D,Paraguay,Australia,1,0
 23,D,Paraguay,Turkiye,0,1
-24,D,Australia,Turkiye,1,0
+24,D,Australia,Turkiye,2,1
 25,E,Germany,Curacao,1,0
 26,E,Germany,Ivory Coast,1,0
 27,E,Germany,Ecuador,1,0
@@ -51,7 +51,7 @@ match_id,group,team1,team2,score1,score2
 50,I,France,Iraq,1,0
 51,I,France,Norway,1,0
 52,I,Senegal,Iraq,1,0
-53,I,Senegal,Norway,1,0
+53,I,Senegal,Norway,0,1
 54,I,Iraq,Norway,0,1
 55,J,Argentina,Algeria,1,0
 56,J,Argentina,Austria,1,0
@@ -70,4 +70,4 @@ match_id,group,team1,team2,score1,score2
 69,L,England,Panama,1,0
 70,L,Croatia,Ghana,1,0
 71,L,Croatia,Panama,1,0
-72,L,Ghana,Panama,0,1
+72,L,Ghana,Panama,1,0

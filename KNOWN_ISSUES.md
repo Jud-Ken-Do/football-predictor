@@ -51,7 +51,7 @@ At prediction time only causal forward-pass states are available — which are n
 
 **Why it's bad:** Each correctly tipped third-place advancer is worth +3 pts. With 8 of 12 third-place teams advancing, ignoring this means ~24 potential points are unoptimised.
 
-**Fix:** `generate_submission_v2.py` — `estimate_advance_probs()` simulates all 12 groups simultaneously, sorts the 12 third-place teams by pts/gd/gf, and credits the best 8 as advancing. `optimise_group_scores()` uses these cross-group P(advance) values instead of per-group isolation.
+**Fix:** `generate_submission.py` — `estimate_advance_probs()` simulates all 12 groups simultaneously, sorts the 12 third-place teams by pts/gd/gf, and credits the best 8 as advancing. `optimise_group_scores()` uses these cross-group P(advance) values instead of per-group isolation.
 
 **Branch:** `fix/third-place-advancement`
 

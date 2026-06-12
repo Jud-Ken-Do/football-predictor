@@ -14,7 +14,7 @@ Predicts the outcome (home win / draw / away win) and most likely scoreline for 
 | 2 | **Temperature Scaling** | Calibrates XGBoost's overconfident log-probabilities using a single learned scalar T (Guo et al. ICML 2017). |
 | 3 | **Bayesian Hierarchical Poisson** | Log-linear goal model estimating λ_h, λ_a. Half-life derived from Kalman EM-tuned process noise q. Includes Dixon-Coles ρ correction for low-score joint probabilities. |
 | 4 | **Context-Adaptive Ensemble** | Per-match α = sigmoid(w · [odds_available, kalman_uncertainty, log1p_h2h] + b), learned via NLL minimisation with L2 regularisation. Blends XGBoost and BayesPoisson. Falls back to scalar α when context unavailable. |
-| 5 | **WC 2026 Post-Processing** | Venue λ adjustment (partial HA for MEX/USA/CAN, altitude), quality nudge (sofifa + api_form), player absence penalty (market-value-weighted). Applied in `wc_context.py`. |
+| 5 | **WC 2026 Post-Processing** | Applied in order: (a) venue λ adjustment (partial HA for MEX/USA/CAN, altitude); (b) market odds blend — AH line + O/U 2.5 derive a market-implied Poisson model blended at 20% weight; when AH is absent the model's own directional ratio is preserved; (c) quality nudge (sofifa + api_form); (d) player absence penalty (market-value-weighted). See `wc_context.py`. |
 
 ---
 
@@ -42,7 +42,7 @@ These are used for XGBoost training and prediction. All produce non-zero values 
 
 Near-duplicate features (|Pearson r| > 0.95) are automatically pruned by `prune_correlated_features()` before training, keeping the higher-variance member of each pair.
 
-### WC 2026 post-processing context (5 modules — `WC_CONTEXT_MODULES`)
+### WC 2026 post-processing context (6 modules — `WC_CONTEXT_MODULES`)
 
 Applied as adjustments after the XGBoost + BayesPoisson ensemble, not as training features. Produces meaningful values only for WC 2026 fixtures.
 
@@ -53,6 +53,7 @@ Applied as adjustments after the XGBoost + BayesPoisson ensemble, not as trainin
 | `api_form` | Last-10-match form from API-Football (pre-cached for all 48 WC 2026 teams) |
 | `squad_wc2026` | Club tier, average age, top-club ratio from official FIFA WC 2026 squad list |
 | `injury` | Pre-match injuries/suspensions from API-Football cache + market-value-weighted player absence penalty |
+| `wc2026_market` | Pre-match bookmaker signals: 1X2 implied probs, O/U 2.5, Asian Handicap line, BTTS, clean sheet H/A (API-Football, all 72 fixtures) |
 
 ---
 
@@ -66,6 +67,7 @@ Applied as adjustments after the XGBoost + BayesPoisson ensemble, not as trainin
 | `EA FC 26 / SoFIFA` | Squad attribute cards for all 48 WC 2026 teams |
 | `football-data.co.uk WorldCup2026.xlsx` | xG for UEFA/AFC/CONMEBOL qualifiers; bookmaker odds for WC 2018/2022 |
 | `Transfermarkt.com` | Squad market values scraped June 2026 |
+| `API-Football odds cache` | Pre-match 1X2, Asian Handicap, O/U 2.5, BTTS, clean sheet for all 72 WC 2026 fixtures (`data/wc2026_odds_cache.json`) |
 
 **Match type weights** applied during training:
 
@@ -87,10 +89,6 @@ Applied as adjustments after the XGBoost + BayesPoisson ensemble, not as trainin
 - Tournament progression probabilities (R32 → R16 → QF → SF → Final → Winner) via 50,000 Monte Carlo simulations
 - Kalman posterior uncertainty propagated to λ via lognormal resampling per simulation draw
 - Saved to `output/wc2026_predictions_YYYY-MM-DD_HH-MM-SS.txt`
-
-### `scripts/generate_submission_v2.py`
-- `output/output_v2.csv` — one predicted scoreline per match
-- Scores optimised to maximise expected competition points considering third-place advancement across all 12 groups jointly
 
 ### `scripts/backtest.py`
 - Log-loss, Brier score, accuracy vs uniform baseline with bootstrap 95% CI
@@ -114,6 +112,7 @@ python3.11 scripts/pipeline.py --backtest       # also run WC 2014+2018+2022 bac
 python3.11 scripts/pipeline.py --match "Brazil vs Morocco"
 python3.11 scripts/pipeline.py --mcmc           # full MCMC posterior (~5 min extra)
 python3.11 scripts/pipeline.py --tune           # Optuna hyperparameter search (60 trials)
+python3.11 scripts/pipeline.py --retune         # Re-run friendly weight grid search
 
 # Direct prediction
 python3.11 scripts/predict_wc2026.py
@@ -131,7 +130,7 @@ python3.11 scripts/calibrate_confederations.py
 python3.11 scripts/calibrate_confederations.py --from-year 2000 --plot
 
 # Generate competition submission
-python3.11 scripts/generate_submission_v2.py
+python3.11 scripts/generate_submission.py
 
 # Refresh live data caches
 python3.11 scripts/fetch_api_form.py

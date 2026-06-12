@@ -16,6 +16,7 @@ from football_predictor.features.api_form import APIFormFeatures
 from football_predictor.features.sofifa_ratings import SoFIFARatingsFeatures
 from football_predictor.features.venue_wc2026 import VenueWC2026Features
 from football_predictor.features.odds import OddsFeatures
+from football_predictor.features.wc2026_market import WC2026MarketFeatures
 from football_predictor.features.xg_form import XGFormFeatures
 from football_predictor.features.transfermarkt import TransfermarktFeatures
 
@@ -37,6 +38,7 @@ REGISTRY: dict[str, type[FeatureModule]] = {
     "sofifa_ratings": SoFIFARatingsFeatures,
     "venue_wc2026": VenueWC2026Features,
     "odds": OddsFeatures,
+    "wc2026_market": WC2026MarketFeatures,
     "xg_form": XGFormFeatures,
     "transfermarkt": TransfermarktFeatures,
 }
