@@ -83,11 +83,17 @@ def _data_fingerprint(df: pd.DataFrame) -> tuple:
     and reuse the wrong tuned q (or skip a needed cache rebuild). The
     fingerprint changes whenever the match set meaningfully changes.
     """
+    # match_weight sum included because the friendly weight changes the EKF's
+    # effective R (= λ/weight) and therefore the EM-tuned q — without it,
+    # retraining with a different friendly weight in the same process would
+    # falsely cache-hit on the old q.
+    mw_sum = float(df["match_weight"].sum()) if "match_weight" in df.columns else 0.0
     return (
         len(df),
         str(df["date"].min()),
         str(df["date"].max()),
         int(df["home_goals"].sum() + df["away_goals"].sum()),
+        round(mw_sum, 3),
     )
 
 
