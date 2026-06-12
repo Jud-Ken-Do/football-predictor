@@ -124,7 +124,21 @@ def quality_nudge(
     """
     sofifa_diff = ctx.get("sofifa_diff_overall", 0.0) / _SOFIFA_NORM
     form_diff = ctx.get("api_form_diff_weighted_pts", 0.0) / _API_FORM_NORM
-    q = 0.5 * sofifa_diff + 0.5 * form_diff  # [-1, 1]
+
+    # Transfermarkt squad-value signal — re-wired here after the module was
+    # removed from XGBoost training (June-2026 values leaked into historical
+    # rows). tm_value_ratio = log(home€/away€); /1.5 norms a ~4.5× value gap
+    # to 1.0. Down-weighted vs sofifa/form because market value and sofifa
+    # overall are strongly correlated (avoid double-counting squad quality).
+    components = [sofifa_diff, form_diff]
+    weights = [0.4, 0.4]
+    if ctx.get("tm_available", 0.0) >= 1.0:
+        tm_diff = max(-1.0, min(1.0, ctx.get("tm_value_ratio", 0.0) / 1.5))
+        components.append(tm_diff)
+        weights.append(0.2)
+    else:
+        weights = [0.5, 0.5]
+    q = sum(w_i * c for w_i, c in zip(weights, components))  # [-1, 1]
 
     if abs(q) < 1e-6:
         return p_h, p_d, p_a

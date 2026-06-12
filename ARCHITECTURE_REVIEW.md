@@ -154,7 +154,7 @@ If the ensemble gives a heavy underdog `p_a = 0.04` and the venue+market λ shif
 **Fix:** `mu = log(λ) − σ²/2`. Also: the resample gate `if lam_h_log_std > 0.02` checks only the home std but controls both λs, and home/away draws should be correlated (shared opponent states).
 
 ### ✅ B2. Transfermarkt June-2026 values leak into all historical training rows
-**FIXED 2026-06-12** — `transfermarkt` moved from `DEFAULT_FEATURE_MODULES` (now 12 modules) to `WC_CONTEXT_MODULES` (now 7). Next training run no longer sees June-2026 values on historical rows.
+**FIXED 2026-06-12** — `transfermarkt` moved from `DEFAULT_FEATURE_MODULES` (now 12 modules) to `WC_CONTEXT_MODULES` (now 7). Next training run no longer sees June-2026 values on historical rows. **Re-wired at prediction time (same day):** `quality_nudge` now includes a transfermarkt component (`tm_value_ratio/1.5`, weight 0.2 vs 0.4/0.4 sofifa/form, only when `tm_available`) so the squad-value signal isn't silently dropped after leaving training.
 **Where:** `football_predictor/features/transfermarkt.py:57-59, 70-95`
 
 The docstring claims historical rows get 0, but `_value()` is a pure name lookup with no date condition — a 2012 match gets June-2026 squad values with `tm_available=1`. This is exactly the covariate-shift/leakage class the project excluded sofifa for.

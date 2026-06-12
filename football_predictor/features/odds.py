@@ -28,7 +28,9 @@ DATA COVERAGE
   WC 2018 — 64 matches (Pinnacle closing odds)
   WC 2022 — 64 matches (bet365 + Betfair closing odds)
   WC 2026 qualifiers — 889 matches (market average odds)
-  WC 2026 fixtures   — no pre-match odds yet → odds_available=0, all probs=0.333
+  WC 2026 fixtures   — live pre-match odds via data/wc2026_odds_cache.json
+                       (API-Football, merged in build_odds_lookup) → odds_available=1
+                       when the cache has the fixture; flat 0.333 otherwise
 
 References:
     Zeileis, A. et al. (2018). Probabilistic forecasts for the 2018 FIFA World Cup.
