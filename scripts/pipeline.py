@@ -145,8 +145,6 @@ def step_train(X, y, sw, train_df, use_mcmc: bool, mcmc_draws: int, mcmc_tune: i
     import pandas as pd
     from football_predictor.models.gradient_boost import GradientBoostModel
     from football_predictor.models.bayesian_poisson import BayesianPoissonModel
-    from football_predictor.models.calibration import TemperatureScaling
-    from football_predictor.models.ensemble import EnsembleModel
     from football_predictor.data.wc2026 import normalise
 
     cut = int(len(X) * 0.8)
@@ -172,51 +170,54 @@ def step_train(X, y, sw, train_df, use_mcmc: bool, mcmc_draws: int, mcmc_tune: i
         label = "re-tuning" if tune_xgb else "first run — tuning"
         print(f"  [XGB] {label} ({tune_trials} Optuna trials, {len(val_splits)} WC val folds)...")
         xgb.tune_hyperparameters(val_splits, n_trials=tune_trials)
-    xgb.fit(X.iloc[:cut], y.iloc[:cut], sample_weight=sw[:cut])
-    xgb_proba_cal = xgb.predict_proba(cal_X)
-    temp_cal = TemperatureScaling()
-    # Weighted NLL: WC matches (w=1.5) count more than minor tournaments (0.6)
-    temp_cal.fit(xgb_proba_cal, cal_y, sample_weight=sw[cut:])
-    print(f"  XGB done  T={temp_cal.temperature:.3f} ({_tick(t0):.1f}s)")
-
-    t1 = time.time()
     from football_predictor.features.kalman_strength import KalmanStrengthFeatures
+    from football_predictor.models.stacking import fit_stacked_calibration
     q_tuned = KalmanStrengthFeatures.get_last_tuned_q()
     hl = BayesianPoissonModel.half_life_from_q(q_tuned)
     print(f"  BayesPoisson half-life: {hl}d  (derived from Kalman q={q_tuned:.4f}/yr)")
-    bp = BayesianPoissonModel(half_life_days=hl)
-    if use_mcmc:
-        print(f"  MCMC sampling ({mcmc_draws} draws + {mcmc_tune} tune) ...")
-        bp.fit_mcmc(train_df.iloc[:cut], draws=mcmc_draws, tune=mcmc_tune)
-    else:
-        bp.fit(train_df.iloc[:cut])
-    print(f"  BayesPoisson done ({_tick(t1):.1f}s)")
 
-    # Ensemble: calibrate on held-out 20%
-    def _bp_proba(matches):
+    def _bp_proba_for(model, matches):
         rows = []
         for _, m in matches.iterrows():
-            p = bp.predict_proba(normalise(m["home_team"]), normalise(m["away_team"]),
-                                 neutral=bool(m.get("neutral", True)))
+            p = model.predict_proba(normalise(m["home_team"]), normalise(m["away_team"]),
+                                    neutral=bool(m.get("neutral", True)))
             rows.append(p)
         return pd.DataFrame(rows, columns=["home_win", "draw", "away_win"])
 
-    bp_proba_cal = _bp_proba(train_df.iloc[cut:])
-    ensemble = EnsembleModel()
-    # α must be fitted on temperature-scaled XGB probs — the same distribution
-    # it blends at predict time.
-    ensemble.fit(temp_cal.transform(xgb_proba_cal), bp_proba_cal, cal_y,
-                 context_X=cal_X, sample_weight=sw[cut:])
+    def _fit_xgb(X_tr, y_tr, sw_tr):
+        m = GradientBoostModel()
+        m.fit(X_tr, y_tr, sample_weight=sw_tr)
+        return m
+
+    def _fit_bp(matches_tr):
+        # Folds always use MAP — MCMC only for the final model (speed).
+        b = BayesianPoissonModel(half_life_days=hl)
+        b.fit(matches_tr)
+        return b
+
+    # Stacked calibration (R3): T + ensemble α on pooled out-of-time folds
+    temp_cal, ensemble = fit_stacked_calibration(
+        X, y, train_df.reset_index(drop=True), sw,
+        _fit_xgb, _fit_bp,
+        lambda b, m: _bp_proba_for(b, m.reset_index(drop=True)),
+    )
+    print(f"  Stacked calibration done  T={temp_cal.temperature:.3f} ({_tick(t0):.1f}s)")
     print(f"  Ensemble  ᾱ={ensemble.xgb_weight:.2f} XGB + {ensemble.bp_weight:.2f} BP (context-adaptive)")
 
-    # Refit BP on full data now ensemble weight is locked; then estimate DC ρ
+    # Final models on the full training window now T and α are locked
     t2 = time.time()
+    xgb.fit(X, y, sample_weight=sw)
+    bp = BayesianPoissonModel(half_life_days=hl)
     if use_mcmc:
+        print(f"  MCMC sampling ({mcmc_draws} draws + {mcmc_tune} tune) ...")
         bp.fit_mcmc(train_df, draws=mcmc_draws, tune=mcmc_tune)
     else:
         bp.fit(train_df)
     bp.fit_rho(train_df)
-    print(f"  BP refit + DC ρ estimated ({_tick(t2):.1f}s)")
+    print(f"  Final XGB + BP fit + DC ρ estimated ({_tick(t2):.1f}s)")
+
+    def _bp_proba(matches):
+        return _bp_proba_for(bp, matches)
 
     return xgb, temp_cal, bp, ensemble, _bp_proba
 

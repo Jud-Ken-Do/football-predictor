@@ -78,7 +78,7 @@ Unified 7-step orchestrator with structured print output and per-step timing:
 1. FETCH — api_form, transfermarkt, injuries (cache-aware, skipped if fresh)
 2. LOAD — historical data from 2010
 3. FEAT — build_feature_matrix() across 13 DEFAULT_FEATURE_MODULES + prune_correlated_features(threshold=0.95)
-4. TRAIN — XGB (+ optional Optuna tuning with WC 2018/2022 as val folds) + temperature scaling + BayesPoisson (EM-derived half-life, DC ρ) + context-adaptive ensemble
+4. TRAIN — XGB (+ optional Optuna tuning with WC 2018/2022 as val folds) + temperature scaling + BayesPoisson (EM-derived half-life, DC ρ) + context-adaptive ensemble; T and α fitted via stacked out-of-time calibration (`models/stacking.py`: 4 expanding-window folds, pooled OOS predictions), final XGB+BP refit on full window
 5. PRED — 72 group stage match probabilities + WC 2026 post-processing (venue, quality, absence)
 6. SIM — 50k Monte Carlo simulations; Kalman posterior uncertainty propagated to λ via lognormal resampling
 7. OUTPUT — print tables + save to `output/wc2026_predictions_YYYY-MM-DD_HH-MM-SS.txt`

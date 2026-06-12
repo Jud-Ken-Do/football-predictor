@@ -253,46 +253,46 @@ def train_model(
     if not quiet:
         print(f"  {X.shape[1]} features in {time.time()-t0:.1f}s")
 
-    cut = int(len(X) * 0.8)
-    cal_X, cal_y = X.iloc[cut:], y.iloc[cut:]
+    # Stacked calibration (R3): T and ensemble α fitted on pooled out-of-time
+    # predictions across expanding-window folds (~40% of data) instead of a
+    # single 20% chronological tail.
+    from football_predictor.features.kalman_strength import KalmanStrengthFeatures
+    from football_predictor.models.stacking import fit_stacked_calibration
+    _q = KalmanStrengthFeatures.get_last_tuned_q()
+    _hl = BayesianPoissonModel.half_life_from_q(_q)
 
-    # XGBoost + temperature scaling
-    xgb = GradientBoostModel()
-    xgb.fit(X.iloc[:cut], y.iloc[:cut], sample_weight=sw[:cut])
-    xgb_proba_cal = xgb.predict_proba(cal_X)
-    temp_cal = TemperatureScaling()
-    # Weighted NLL: WC matches (w=1.5) count more than minor tournaments (0.6)
-    temp_cal.fit(xgb_proba_cal, cal_y, sample_weight=sw[cut:])
+    def _fit_xgb(X_tr, y_tr, sw_tr):
+        m = GradientBoostModel()
+        m.fit(X_tr, y_tr, sample_weight=sw_tr)
+        return m
+
+    def _fit_bp(matches_tr):
+        # Folds always use MAP — MCMC only for the final model (speed).
+        b = BayesianPoissonModel(half_life_days=_hl)
+        b.fit(matches_tr)
+        return b
+
+    if not quiet:
+        print("Fitting stacked calibration (T + ensemble α on pooled OOS folds)...")
+    temp_cal, ensemble = fit_stacked_calibration(
+        X, y, train_df.reset_index(drop=True), sw,
+        _fit_xgb, _fit_bp,
+        lambda b, m: _bp_proba_df(b, m.reset_index(drop=True)),
+        quiet=quiet,
+    )
     if not quiet:
         print(f"  XGB temperature T={temp_cal.temperature:.3f}")
 
-    # Bayesian Hierarchical Poisson — trained on same 80% split as XGB so the
-    # held-out 20% is genuinely out-of-sample for both models when fitting ensemble α.
-    from football_predictor.features.kalman_strength import KalmanStrengthFeatures
-    _q = KalmanStrengthFeatures.get_last_tuned_q()
-    bp = BayesianPoissonModel(half_life_days=BayesianPoissonModel.half_life_from_q(_q))
+    # Final models refit on the full training window now T and α are locked.
+    xgb = _fit_xgb(X, y, sw)
+    bp = BayesianPoissonModel(half_life_days=_hl)
     if use_mcmc:
         if not quiet:
             print("Fitting Bayesian Poisson (MCMC — this takes ~5 min)...")
-        bp.fit_mcmc(train_df.iloc[:cut], draws=mcmc_draws, tune=mcmc_tune)
+        bp.fit_mcmc(train_df, draws=mcmc_draws, tune=mcmc_tune)
     else:
         if not quiet:
             print("Fitting Bayesian Poisson model (MAP)...")
-        bp.fit(train_df.iloc[:cut])
-
-    # Ensemble: learn optimal blend on held-out calibration set.
-    # α must be fitted on the SAME distribution it blends at predict time —
-    # i.e. temperature-scaled XGB probabilities, not raw ones.
-    bp_proba_cal = _bp_proba_df(bp, train_df.iloc[cut:])
-    ensemble = EnsembleModel()
-    ensemble.fit(temp_cal.transform(xgb_proba_cal), bp_proba_cal, cal_y,
-                 context_X=cal_X, sample_weight=sw[cut:])
-
-    # Refit BP on full training data now that ensemble weight is fixed —
-    # more data improves the goal-rate estimates used in prediction.
-    if use_mcmc:
-        bp.fit_mcmc(train_df, draws=mcmc_draws, tune=mcmc_tune)
-    else:
         bp.fit(train_df)
     bp.fit_rho(train_df)
     if not quiet:

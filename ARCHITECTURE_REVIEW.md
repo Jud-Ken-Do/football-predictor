@@ -324,7 +324,7 @@ Scores/probs are swapped when the row orientation flips but `lam_home`/`lam_away
 
 **✅ R2 (DONE 2026-06-12). Persistent team strength per tournament simulation.** Draw each team's log-λ perturbation **once per simulation** from the Kalman posterior instead of per match. Correlating a team's performance across its own matches materially fattens the tails of "dark horse deep run" probabilities — the main thing the simulator exists to quantify.
 
-**R3. Out-of-time K-fold stacking for T and α.** The single 20% chronological tail is high-variance for fitting the temperature and 4 context weights. Pool out-of-sample predictions across several chronological folds and fit the calibration layer once on the pooled set — fixes the backtest/production wiring divergence as a side effect.
+**✅ R3 (DONE 2026-06-13). Out-of-time K-fold stacking for T and α.** The single 20% chronological tail is high-variance for fitting the temperature and 4 context weights. Now pools out-of-time predictions across 4 expanding-window folds (last 40% of data) and fits the calibration layer once on the pooled set — shared `fit_stacked_calibration()` in `models/stacking.py`, used identically by `backtest.py` (WC + continental), `predict_wc2026.py`, and `pipeline.py`, fixing the backtest/production wiring divergence (80/20 vs 85/15). Final XGB + BP are refit on the full training window once T/α are locked (previously XGB only ever saw the first 80–85%). WC backtest average improved **1.0092 → 1.0019** (2014 0.9578→0.9489, 2018 0.9690→0.9821, 2022 1.1008→1.0747). MCMC, when requested, is used only for the final BP fit; folds always use MAP.
 
 **R4. Joint 4-d Kalman update per match.** Stack `[att_h, def_h, att_a, def_a]`, one 2-observation update with the full Jacobian — learns cross-team correlations and produces a λ_h/λ_a covariance the MC resampler can consume (pairs with R2 and B1).
 
@@ -356,6 +356,17 @@ weighted T/α on scaled probs. friendly_weight=0.8 (cached; not yet re-tuned hon
 | **Average** | 144 | **1.0119** | — | 1.0986 | 0.528 | — | — |
 
 Every roadmap change (R1–R10) must beat this average to be kept.
+
+**Baseline progression** (same config: friendly_weight=0.8, `use_tuned_cache=False`):
+
+| Date | Change | WC 2014 | WC 2018 | WC 2022 | Average |
+|---|---|---|---|---|---|
+| 2026-06-12 | post-fix baseline | 0.9597 | 0.9785 | 1.0975 | 1.0119 |
+| 2026-06-12 | + R5 MOV Elo (R7/R2 metric-neutral) | 0.9578 | 0.9690 | 1.1008 | 1.0092 |
+| 2026-06-13 | R1 geometric pooling — **rejected** | 0.9630 | 0.9749 | 1.1115 | 1.0165 |
+| 2026-06-13 | + R3 stacked calibration | 0.9489 | 0.9821 | 1.0747 | **1.0019** |
+
+Current bar for new changes: **1.0019**.
 
 Continental + WC2014 baseline (same day, via `backtest.py --years 2014 --continental`).
 ⚠️ Run with the backtest CLI default `friendly_weight=0.3`, NOT the deployed 0.8 —

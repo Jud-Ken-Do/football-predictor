@@ -48,6 +48,7 @@ from football_predictor.models import (
     GradientBoostModel,
     TemperatureScaling,
 )
+from football_predictor.models.stacking import fit_stacked_calibration
 
 OUTPUT_DIR = ROOT / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -305,46 +306,37 @@ def run_backtest(year: int, include_shap: bool = True, label: str = "", friendly
     X_train, _ = prune_correlated_features(X_train, threshold=0.95)
     X_test = X_test_raw.reindex(columns=X_train.columns, fill_value=0.0)
 
-    # ── Train XGBoost ─────────────────────────────────────────────────────────
-    print("  Training XGBoost + temperature scaling...")
+    # ── Stacked calibration (R3): T + ensemble α on pooled OOS folds ─────────
+    print("  Fitting stacked calibration (T + ensemble α on pooled OOS folds)...")
     sw = train_df["match_weight"].values if "match_weight" in train_df else np.ones(len(X_train))
-    cut = int(len(X_train) * 0.85)
 
-    # use_tuned_cache=False: cached hyperparameters were Optuna-selected on
-    # WC 2018/2022 — evaluating those tournaments with them is test leakage.
-    xgb = GradientBoostModel(use_tuned_cache=False)
-    xgb.fit(X_train.iloc[:cut], y_train.iloc[:cut], sample_weight=sw[:cut])
-
-    xgb_cal = xgb.predict_proba(X_train.iloc[cut:])
-    temp_cal = TemperatureScaling()
-    temp_cal.fit(xgb_cal, y_train.iloc[cut:], sample_weight=sw[cut:])
-
-    # ── Train BayesPoisson ────────────────────────────────────────────────────
-    print("  Training BayesianPoisson (MAP)...")
     from football_predictor.features.kalman_strength import KalmanStrengthFeatures
     q_tuned = KalmanStrengthFeatures.get_last_tuned_q()
     hl = BayesianPoissonModel.half_life_from_q(q_tuned)
     print(f"  BayesPoisson half-life: {hl}d  (Kalman q={q_tuned:.4f}/yr)")
-    bp = BayesianPoissonModel(half_life_days=hl)
-    # Fit on the pre-calibration split only — calibration probabilities must be
-    # out-of-sample for BOTH models or the ensemble α overweights BP
-    # (production scripts use the same order).
-    bp.fit(train_df.iloc[:cut])
 
-    bp_cal_df = _bp_proba_df(bp, train_df.iloc[cut:].reset_index(drop=True))
-    bp_cal_df.index = y_train.iloc[cut:].index
+    # use_tuned_cache=False: cached hyperparameters were Optuna-selected on
+    # WC 2018/2022 — evaluating those tournaments with them is test leakage.
+    def _fit_xgb(X_tr, y_tr, sw_tr):
+        m = GradientBoostModel(use_tuned_cache=False)
+        m.fit(X_tr, y_tr, sample_weight=sw_tr)
+        return m
 
-    # ── Ensemble ──────────────────────────────────────────────────────────────
-    print("  Fitting ensemble (α * XGB + (1-α) * BayesPoisson)...")
-    ensemble = EnsembleModel()
-    # α fitted on temperature-scaled XGB probs — the distribution blended at
-    # predict time (line below uses temp_cal.transform too).
-    ensemble.fit(temp_cal.transform(xgb_cal), bp_cal_df, y_train.iloc[cut:],
-                 context_X=X_train.iloc[cut:].reset_index(drop=True),
-                 sample_weight=sw[cut:])
+    def _fit_bp(matches_tr):
+        b = BayesianPoissonModel(half_life_days=hl)
+        b.fit(matches_tr)
+        return b
 
-    # Refit BP on full training data now α is locked; then estimate DC ρ.
-    bp.fit(train_df)
+    temp_cal, ensemble = fit_stacked_calibration(
+        X_train, y_train, train_df.reset_index(drop=True), sw,
+        _fit_xgb, _fit_bp,
+        lambda b, m: _bp_proba_df(b, m.reset_index(drop=True)),
+    )
+
+    # Final models refit on the full pre-WC window now T and α are locked.
+    print("  Training final XGBoost + BayesianPoisson on full window...")
+    xgb = _fit_xgb(X_train, y_train, sw)
+    bp = _fit_bp(train_df)
     bp.fit_rho(train_df)
 
     # ── Predict test set ──────────────────────────────────────────────────────
@@ -475,33 +467,31 @@ def run_continental_backtest(name: str, cfg: dict, friendly_weight: float = 0.3)
     X_train, _ = prune_correlated_features(X_train, threshold=0.95)
     X_test = X_test_raw.reindex(columns=X_train.columns, fill_value=0.0)
     sw = train_df["match_weight"].values if "match_weight" in train_df else np.ones(len(X_train))
-    cut = int(len(X_train) * 0.85)
-
-    # use_tuned_cache=False — same leakage rationale as run_backtest.
-    xgb = GradientBoostModel(use_tuned_cache=False)
-    xgb.fit(X_train.iloc[:cut], y_train.iloc[:cut], sample_weight=sw[:cut])
-    xgb_cal = xgb.predict_proba(X_train.iloc[cut:])
-    temp_cal = TemperatureScaling()
-    temp_cal.fit(xgb_cal, y_train.iloc[cut:], sample_weight=sw[cut:])
 
     from football_predictor.features.kalman_strength import KalmanStrengthFeatures
     q_tuned = KalmanStrengthFeatures.get_last_tuned_q()
     hl = BayesianPoissonModel.half_life_from_q(q_tuned)
-    bp = BayesianPoissonModel(half_life_days=hl)
-    # Calibration probs must be out-of-sample for BOTH models (see run_backtest).
-    bp.fit(train_df.iloc[:cut])
 
-    bp_cal_df = _bp_proba_df(bp, train_df.iloc[cut:].reset_index(drop=True))
-    bp_cal_df.index = y_train.iloc[cut:].index
+    # use_tuned_cache=False — same leakage rationale as run_backtest.
+    def _fit_xgb(X_tr, y_tr, sw_tr):
+        m = GradientBoostModel(use_tuned_cache=False)
+        m.fit(X_tr, y_tr, sample_weight=sw_tr)
+        return m
 
-    ensemble = EnsembleModel()
-    # α fitted on temperature-scaled XGB probs (the distribution used below).
-    ensemble.fit(temp_cal.transform(xgb_cal), bp_cal_df, y_train.iloc[cut:],
-                 context_X=X_train.iloc[cut:].reset_index(drop=True),
-                 sample_weight=sw[cut:])
+    def _fit_bp(matches_tr):
+        b = BayesianPoissonModel(half_life_days=hl)
+        b.fit(matches_tr)
+        return b
 
-    # Refit BP on full training data now α is locked; then estimate DC ρ.
-    bp.fit(train_df)
+    temp_cal, ensemble = fit_stacked_calibration(
+        X_train, y_train, train_df.reset_index(drop=True), sw,
+        _fit_xgb, _fit_bp,
+        lambda b, m: _bp_proba_df(b, m.reset_index(drop=True)),
+    )
+
+    # Final models refit on the full pre-tournament window now T and α are locked.
+    xgb = _fit_xgb(X_train, y_train, sw)
+    bp = _fit_bp(train_df)
     bp.fit_rho(train_df)
 
     xgb_test = temp_cal.transform(xgb.predict_proba(X_test))
