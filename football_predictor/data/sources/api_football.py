@@ -109,7 +109,12 @@ def fetch_and_cache_all_injuries(force: bool = False, delay: float = 0.8) -> dic
 
     for fix in fixtures:
         fid = str(fix["fixture"]["id"])
-        if fid in existing and not force:
+        # Only trust the cache when it has actual entries. An EMPTY cached
+        # list usually means the fixture was fetched days before kickoff,
+        # when API-Football had no injury data yet — those must be re-checked
+        # on every run or the injury features stay a silent no-op for the
+        # whole tournament. (All 72 fixtures were cached empty pre-kickoff.)
+        if fid in existing and existing[fid] and not force:
             continue
 
         status = fix["fixture"]["status"]["short"]

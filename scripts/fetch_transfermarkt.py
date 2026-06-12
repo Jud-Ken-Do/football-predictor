@@ -114,19 +114,25 @@ def fetch_team_value(team_name: str, tm_id: int, tm_slug: str) -> float:
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # Squad total value is in the header box
+        # Primary: the dedicated market-value box in the page header
+        # (contains e.g. "€1.05bn Total market value").
+        for tag in soup.select("div.data-header__market-value-wrapper, a.data-header__market-value-wrapper"):
+            txt = tag.get_text(" ", strip=True)
+            if "€" in txt:
+                val = _parse_value(txt.split("Total")[0])
+                if val > 0:
+                    return val
+
+        # Fallback: header detail rows — but ONLY rows labelled "market value".
+        # Never match on "squad": the header also contains "Squad size: 26",
+        # which once scraped the 26-player WC squad limit as a €26M value for
+        # every team and clobbered the cache.
         for tag in soup.select("div.data-header__details li"):
             label = tag.get_text(" ", strip=True).lower()
-            if "market value" in label or "squad" in label:
+            if "market value" in label:
                 val_tag = tag.select_one("span.data-header__content")
                 if val_tag:
                     return _parse_value(val_tag.get_text(strip=True))
-
-        # Fallback: look for the summary line
-        for tag in soup.select("div.data-header__market-value-wrapper a"):
-            txt = tag.get_text(strip=True)
-            if txt:
-                return _parse_value(txt)
 
     except Exception as e:
         logger.warning("  %s: fetch failed (%s)", team_name, e)
@@ -148,9 +154,34 @@ def fetch_all(force: bool = False) -> dict[str, float]:
         logger.info("  → €%.1f M", val)
         time.sleep(1.5)  # polite rate limit
 
+    # Sanity guard: refuse to overwrite the cache with implausible data.
+    # Real WC-squad totals span ~€10M (Curaçao) to ~€2,500M (Spain). If the
+    # page layout changes again and we scrape a constant or tiny values,
+    # keep the existing cache rather than clobbering good data.
+    nums = [v for v in values.values() if isinstance(v, (int, float))]
+    n_zero = sum(1 for v in nums if v <= 0)
+    if not nums or max(nums) < 100 or len(set(nums)) <= 3 or n_zero > len(nums) // 4:
+        logger.error(
+            "Scraped values look WRONG (max=%.1f, distinct=%d, zeros=%d/%d) — "
+            "NOT overwriting %s. Fix the parser before re-running.",
+            max(nums) if nums else 0.0, len(set(nums)), n_zero, len(nums), CACHE_PATH.name,
+        )
+        if CACHE_PATH.exists():
+            with open(CACHE_PATH) as f:
+                return json.load(f)
+        raise SystemExit(1)
+
+    # Preserve provenance keys from the existing cache, refresh the date note.
+    meta = {}
+    if CACHE_PATH.exists():
+        try:
+            with open(CACHE_PATH) as f:
+                meta = {k: v for k, v in json.load(f).items() if k.startswith("_")}
+        except Exception:
+            meta = {}
     CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(CACHE_PATH, "w") as f:
-        json.dump(values, f, indent=2, ensure_ascii=False)
+        json.dump({**meta, **values}, f, indent=2, ensure_ascii=False)
     logger.info("Saved to %s", CACHE_PATH)
     return values
 
