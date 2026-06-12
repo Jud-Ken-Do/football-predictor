@@ -320,7 +320,7 @@ Scores/probs are swapped when the row orientation flips but `lam_home`/`lam_away
 
 ## 5. Model-improvement roadmap (beyond bug fixes)
 
-**R1. Log-linear (geometric) ensemble pooling.** Replace `α·p_xgb + (1−α)·p_bp` with `softmax(α·log p_xgb + (1−α)·log p_bp)`. Better calibrated for combining probabilistic models, composes cleanly with temperature scaling, and folding the wc_context nudges into the same log-space pipeline eliminates the negative-probability bug class entirely (C8, W5).
+**❌ R1 (TESTED & REJECTED 2026-06-13). Log-linear (geometric) ensemble pooling.** Replace `α·p_xgb + (1−α)·p_bp` with `softmax(α·log p_xgb + (1−α)·log p_bp)`. Tested at identical config (friendly_weight=0.8): WC backtest average **worsened 1.0092 → 1.0165**, degrading all three years (2014 0.9578→0.9630, 2018 0.9690→0.9749, 2022 1.1008→1.1115). The geometric pool sharpens the blend (it behaves like a product of experts), and on log-loss the linear mixture's hedging wins consistently. Reverted; arithmetic blend retained. The negative-probability motivation (C8, W5) is already handled by clipping.
 
 **✅ R2 (DONE 2026-06-12). Persistent team strength per tournament simulation.** Draw each team's log-λ perturbation **once per simulation** from the Kalman posterior instead of per match. Correlating a team's performance across its own matches materially fattens the tails of "dark horse deep run" probabilities — the main thing the simulator exists to quantify.
 
