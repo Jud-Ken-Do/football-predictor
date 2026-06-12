@@ -355,8 +355,24 @@ weighted T/α on scaled probs. friendly_weight=0.8 (cached; not yet re-tuned hon
 | WC 2022 | 48 | 1.0975 | [0.936, 1.260] | 1.0986 | 0.500 | 1.210 | 0.602 |
 | **Average** | 144 | **1.0119** | — | 1.0986 | 0.528 | — | — |
 
-Every roadmap change (R1–R10) must beat this average to be kept. Continental
-baselines still to be recorded (`backtest.py --continental`). Note WC 2022 barely
+Every roadmap change (R1–R10) must beat this average to be kept.
+
+Continental + WC2014 baseline (same day, via `backtest.py --years 2014 --continental`).
+⚠️ Run with the backtest CLI default `friendly_weight=0.3`, NOT the deployed 0.8 —
+note WC 2014 scores 0.9852 here vs 0.9597 under weight 0.8 above. When benchmarking
+future changes against the deployed config, pass `--friendly-weight 0.8` explicitly.
+
+| Tournament | N | Log-loss | 95% CI | Acc |
+|---|---|---|---|---|
+| WC 2014 (w=0.3) | 48 | 0.9852 | [0.885, 1.087] | 0.542 |
+| Copa América 2021 | 20 | 0.8800 | [0.713, 1.044] | 0.600 |
+| UEFA Euro 2020 | 36 | 0.9073 | [0.741, 1.081] | 0.611 |
+| AFCON 2022 | 36 | 1.0401 | [0.853, 1.226] | 0.417 |
+| Asian Cup 2023 | 30 | 0.7350 | [0.577, 0.904] | 0.700 |
+| **Average** | 170 | **0.9095** | — | 0.565 |
+
+AFCON 2022 is the weak spot (acc 0.417) — consistent with the documented CAF
+data gap (no xG, sparse odds coverage for African teams). Note WC 2022 barely
 beats uniform — the upset-heavy tournament (Saudi–Argentina, Japan–Germany/Spain);
 published bookmaker closing-odds log-loss for that group stage is ~1.04–1.07, so
 the headroom over the market is structurally small there.
