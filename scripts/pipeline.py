@@ -416,8 +416,15 @@ def _save_raw_predictions(match_data: list[dict]) -> Path:
 
         lam_h = m.get("bp_lam_home", 1.0)
         lam_a = m.get("bp_lam_away", 1.0)
-        s_h = math.floor(lam_h)
-        s_a = math.floor(lam_a)
+        if m.get("played"):
+            # Lock played matches to the actual score — the probability
+            # columns were already locked (1/0/0) but the score columns
+            # kept showing floor(λ), contradicting them in the same row.
+            s_h = int(m["actual_home_goals"])
+            s_a = int(m["actual_away_goals"])
+        else:
+            s_h = math.floor(lam_h)
+            s_a = math.floor(lam_a)
         s1, s2 = (s_h, s_a) if m["home_team"] == t1 else (s_a, s_h)
         p_h, p_d, p_a = m["p_home"], m["p_draw"], m["p_away"]
         if m["home_team"] != t1:
