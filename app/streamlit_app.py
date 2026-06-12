@@ -295,7 +295,7 @@ div[data-testid="stAlert"] { border-radius: 9px !important; }
 st.markdown("""
 <div class="wc-header">
   <h1>⚽ FIFA World Cup 2026</h1>
-  <p>XGBoost &nbsp;·&nbsp; Bayesian Poisson &nbsp;·&nbsp; Kalman EKF &nbsp;·&nbsp; Context-Adaptive Ensemble &nbsp;·&nbsp; 50 k Monte Carlo</p>
+  <p>XGBoost &nbsp;·&nbsp; Bayesian Poisson &nbsp;·&nbsp; Kalman EKF &nbsp;·&nbsp; Context-Adaptive Ensemble &nbsp;·&nbsp; seeded Monte Carlo</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -421,6 +421,10 @@ with st.sidebar:
             _grp = _record_result(_rec_home, _rec_away, int(_hg), int(_ag))
             st.success(f"Saved — Group {_grp}: {_rec_home} **{int(_hg)}–{int(_ag)}** {_rec_away}")
             st.cache_data.clear()
+            # Models must retrain too — Kalman/BayesPoisson update on actual
+            # results via append_actual_results(); cache_data alone kept the
+            # old model state and only display-locked the match.
+            st.cache_resource.clear()
 
     # ── Recorded results list ─────────────────────────────────────────────────
     _recorded = _load_recorded()
@@ -436,6 +440,7 @@ with st.sidebar:
                 if _col_d.button("✕", key=f"del_{_r['home_team']}_{_r['away_team']}", help="Delete"):
                     _delete_result(_r["home_team"], _r["away_team"])
                     st.cache_data.clear()
+                    st.cache_resource.clear()  # retrain without the deleted result
                     st.rerun()
 
     st.divider()
@@ -545,102 +550,44 @@ def _get_pair_probs():
         )
         prob_cache[(row["home_team"], row["away_team"])] = (p_h, p_d, p_a)
         lam_cache[(row["home_team"], row["away_team"])] = (lam_h_adj, lam_a_adj)
+
+    # Symmetrise both orientations (matches the CLI): XGB features aren't
+    # slot-symmetric, and all KO venues are neutral — probabilities must not
+    # depend on which arbitrary bracket slot a team lands in.
+    for home, away in list(prob_cache.keys()):
+        if home < away and (away, home) in prob_cache:
+            f, r = prob_cache[(home, away)], prob_cache[(away, home)]
+            p_h = (f[0] + r[2]) / 2.0
+            p_d = (f[1] + r[1]) / 2.0
+            p_a = (f[2] + r[0]) / 2.0
+            tot = p_h + p_d + p_a
+            prob_cache[(home, away)] = (p_h / tot, p_d / tot, p_a / tot)
+            prob_cache[(away, home)] = (p_a / tot, p_d / tot, p_h / tot)
     return prob_cache, lam_cache
 
 
 @st.cache_data(show_spinner=False)
 def _get_mc_counts(n_sims: int):
-    sys.path.insert(0, str(_ROOT / "scripts"))
-    from generate_submission import _simulate_match as _sim_m
+    """Tournament Monte Carlo — delegates to the backend simulate_tournament
+    so the app uses the SAME engine as the CLI: persistent per-simulation
+    team strength (R2), H2H tiebreaks + drawing of lots, strength-based KO
+    draws. The previous hand-rolled vectorized engine silently diverged from
+    the CLI every time the backend simulation changed.
+    """
+    from predict_wc2026 import simulate_tournament, build_team_sigmas
 
     match_data, _ = _get_match_data()
     pair_cache, _ = _get_pair_probs()
 
-    rng = np.random.default_rng(42)
-    group_order = sorted(GROUPS.keys())
-
-    # ── Vectorized group stage: simulate all n_sims at once per group ──────────
-    group_sim: dict[str, dict] = {}
-    for grp in group_order:
-        grp_teams = list(GROUPS[grp])
-        n_teams = len(grp_teams)
-        matches = [m for m in match_data if m["group"] == grp]
-        n_matches = len(matches)
-        match_pairs = [
-            (grp_teams.index(m["home_team"]), grp_teams.index(m["away_team"]))
-            for m in matches
-        ]
-
-        sim_h = np.zeros((n_sims, n_matches), dtype=np.int32)
-        sim_a = np.zeros((n_sims, n_matches), dtype=np.int32)
-        for i, m in enumerate(matches):
-            if m.get("played"):
-                sim_h[:, i] = int(m["actual_home_goals"])
-                sim_a[:, i] = int(m["actual_away_goals"])
-            else:
-                sim_h[:, i], sim_a[:, i] = _sim_m(
-                    m["bp_lam_home"], m["bp_lam_away"],
-                    m["p_home"], m["p_draw"], m["p_away"],
-                    n_sims, rng,
-                    m.get("kalman_lam_h_log_std", 0.0),
-                    m.get("kalman_lam_a_log_std", 0.0),
-                )
-
-        pts = np.zeros((n_sims, n_teams), dtype=np.int32)
-        gd  = np.zeros((n_sims, n_teams), dtype=np.int32)
-        gf  = np.zeros((n_sims, n_teams), dtype=np.int32)
-        for m_idx, (hi, ai) in enumerate(match_pairs):
-            h = sim_h[:, m_idx]; a = sim_a[:, m_idx]
-            hw = h > a; dw = h == a; aw = a > h
-            pts[:, hi] += 3 * hw + dw;  pts[:, ai] += 3 * aw + dw
-            gd[:, hi]  += h - a;        gd[:, ai]  += a - h
-            gf[:, hi]  += h;            gf[:, ai]  += a
-
-        key = pts * 1_000_000 + (gd + 200) * 1_000 + gf
-        ranks = np.argsort(-key, axis=1)   # (n_sims, n_teams)
-        group_sim[grp] = {"teams": grp_teams, "ranks": ranks, "pts": pts, "gd": gd, "gf": gf}
-
-    # ── KO stage: iterate over sims (group results already vectorized) ─────────
     def ko_predictor(home: str, away: str) -> tuple[float, float, float]:
         return pair_cache.get((home, away), (0.4, 0.2, 0.4))
 
-    # reach_counts[team][round] = number of sims where that round is the FURTHEST reached
+    np.random.seed(42)  # same seed convention as the CLI
+    team_sigmas = build_team_sigmas(match_data)
+
     reach_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-
-    for s in range(n_sims):
-        standings: dict[str, list[dict]] = {}
-        for grp in group_order:
-            gs = group_sim[grp]
-            r = gs["ranks"][s]
-            standings[grp] = [
-                {"team": gs["teams"][r[i]], "pts": int(gs["pts"][s, r[i]]),
-                 "gd": int(gs["gd"][s, r[i]]), "gf": int(gs["gf"][s, r[i]])}
-                for i in range(4)
-            ]
-
-        # Track furthest round reached (same logic as simulate_tournament)
-        reached: dict[str, str] = {t: "group_stage" for grp in GROUPS.values() for t in grp}
-
-        qualifiers = get_qualifiers(standings)
-        for team in (list(qualifiers["1"].values()) + list(qualifiers["2"].values()) +
-                     [t for t in qualifiers["3"].values() if t]):
-            reached[team] = "r32"
-
-        r32 = build_r32(qualifiers)
-        r32w = [ko_winner(h, a, ko_predictor) for h, a in r32]
-        for w in r32w: reached[w] = "r16"
-
-        r16w = [ko_winner(r32w[i], r32w[j], ko_predictor) for i, j in R16_PAIRS]
-        for w in r16w: reached[w] = "qf"
-
-        qfw = [ko_winner(r16w[i], r16w[j], ko_predictor) for i, j in QF_PAIRS]
-        for w in qfw: reached[w] = "sf"
-
-        sfw = [ko_winner(qfw[i], qfw[j], ko_predictor) for i, j in SF_PAIRS]
-        for w in sfw: reached[w] = "final"
-
-        reached[ko_winner(sfw[0], sfw[1], ko_predictor)] = "winner"
-
+    for _ in range(n_sims):
+        reached = simulate_tournament(match_data, ko_predictor, team_sigmas=team_sigmas)
         for team, rnd in reached.items():
             reach_counts[team][rnd] += 1
 
@@ -668,7 +615,11 @@ def _load_submission() -> dict[tuple[str, str], tuple[int, int]]:
     for _, row in df.iterrows():
         h = _TEMPLATE_TO_SCHEDULE.get(str(row["team1"]), str(row["team1"]))
         a = _TEMPLATE_TO_SCHEDULE.get(str(row["team2"]), str(row["team2"]))
-        result[(h, a)] = (int(row["score1"]), int(row["score2"]))
+        s1, s2 = int(row["score1"]), int(row["score2"])
+        # Both orientations — 24 of 72 template rows are reversed vs the
+        # schedule, which silently hid the predicted-score badge for them.
+        result[(h, a)] = (s1, s2)
+        result.setdefault((a, h), (s2, s1))
     return result
 
 
@@ -1084,10 +1035,27 @@ with tab_predictor:
         with col_score:
             st.markdown("**Score probability grid**")
             max_g = 5
+            # Dixon-Coles low-score correction so the grid uses the same
+            # probability model as the headline W/D/L probabilities above.
+            _rho_v = float(getattr(_load_models()[2], "_rho", 0.0))
+
+            def _dc_cell(hg: int, ag: int) -> float:
+                p = sp_poisson.pmf(hg, lam_h) * sp_poisson.pmf(ag, lam_a)
+                if _rho_v != 0.0:
+                    if hg == 0 and ag == 0:
+                        p *= max(1.0 - lam_h * lam_a * _rho_v, 1e-8)
+                    elif hg == 0 and ag == 1:
+                        p *= max(1.0 + lam_h * _rho_v, 1e-8)
+                    elif hg == 1 and ag == 0:
+                        p *= max(1.0 + lam_a * _rho_v, 1e-8)
+                    elif hg == 1 and ag == 1:
+                        p *= max(1.0 - _rho_v, 1e-8)
+                return p
+
             z = np.zeros((max_g + 1, max_g + 1))
             for hg in range(max_g + 1):
                 for ag in range(max_g + 1):
-                    z[hg][ag] = sp_poisson.pmf(hg, lam_h) * sp_poisson.pmf(ag, lam_a)
+                    z[hg][ag] = _dc_cell(hg, ag)
 
             fig_score = go.Figure(go.Heatmap(
                 z=z,
@@ -1110,7 +1078,7 @@ with tab_predictor:
 
             # Top 5 scorelines
             scores = sorted(
-                [(hg, ag, sp_poisson.pmf(hg, lam_h) * sp_poisson.pmf(ag, lam_a))
+                [(hg, ag, _dc_cell(hg, ag))
                  for hg in range(6) for ag in range(6)],
                 key=lambda x: -x[2],
             )[:5]
@@ -1586,8 +1554,8 @@ with tab_model:
     pc = st.columns(8)
     param_items = [
         ("Temp T",        f"{temp_m.temperature:.3f}",        "XGBoost calibration scalar"),
-        ("XGB weight",    f"{ens_m.xgb_weight:.2f}",          "Ensemble weight on XGBoost"),
-        ("BP weight",     f"{ens_m.bp_weight:.2f}",           "Ensemble weight on BayesPoisson"),
+        ("XGB weight ᾱ",  f"{ens_m.xgb_weight:.2f}",          "Mean ensemble weight on XGBoost (per-match context-adaptive when context available)"),
+        ("BP weight",     f"{ens_m.bp_weight:.2f}",           "Mean ensemble weight on BayesPoisson"),
         ("Kalman q",      f"{q:.4f}",                         "EM-tuned process noise (per year)"),
         ("BP half-life",  f"{hl}d",                           "BayesPoisson time decay"),
         ("Home adv",      f"{bp_p.get('home_adv', 0):.3f}",   "BP log-odds home advantage"),
@@ -1644,8 +1612,10 @@ with tab_model:
             bp_rows = []
             for team in ALL_TEAMS:
                 norm = normalise(team)
-                att = bp_p.get(f"att_{norm}", 0.0)
-                dff = bp_p.get(f"def_{norm}", 0.0)
+                # _params stores nested dicts {"attack": {team: v}, "defense": {...}}
+                # — the old flat att_<team> keys never existed (chart was all-zero).
+                att = bp_p.get("attack", {}).get(norm, 0.0)
+                dff = bp_p.get("defense", {}).get(norm, 0.0)
                 grp = next(g for g, ts in GROUPS.items() if team in ts)
                 bp_rows.append({
                     "Team": flag(team), "Group": grp,
@@ -1691,13 +1661,16 @@ with tab_model:
 
         def ko_p(h, a): return pair_cache_c.get((h, a), (0.4, 0.2, 0.4))
 
+        from predict_wc2026 import build_team_sigmas as _bts
+        team_sigmas_c = _bts(match_data_c)
+
         checkpoints = [50, 100, 250, 500, 1_000, 2_000, 5_000, 10_000]
         counts_c: dict[str, int] = defaultdict(int)
         rows_c = []
         sim_i = 0
         for cp in checkpoints:
             while sim_i < cp:
-                reached = simulate_tournament(match_data_c, ko_p)
+                reached = simulate_tournament(match_data_c, ko_p, team_sigmas=team_sigmas_c)
                 for tm, rnd in reached.items():
                     if rnd == "winner" and tm in top_teams_c:
                         counts_c[tm] += 1
@@ -2029,9 +2002,12 @@ with tab_submission:
 
         _actual_map: dict[tuple[str, str], tuple[int, int]] = {}
         for _r in _load_recorded():
-            _actual_map[(normalise(_r["home_team"]), normalise(_r["away_team"]))] = (
-                int(_r["home_goals"]), int(_r["away_goals"])
-            )
+            _hh, _aa = normalise(_r["home_team"]), normalise(_r["away_team"])
+            _hg_, _ag_ = int(_r["home_goals"]), int(_r["away_goals"])
+            # Both orientations: 24 of 72 template rows are reversed vs the
+            # official schedule — without this their results never matched.
+            _actual_map[(_hh, _aa)] = (_hg_, _ag_)
+            _actual_map.setdefault((_aa, _hh), (_ag_, _hg_))
 
         _merged: list[dict] = []
         for _, _row in _sub_opt.iterrows():
