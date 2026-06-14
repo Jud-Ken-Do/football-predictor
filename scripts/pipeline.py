@@ -375,11 +375,22 @@ def step_backtest(years: list[int], friendly_weight: float = 0.7) -> None:
 # ── Output ─────────────────────────────────────────────────────────────────────
 
 def _save_raw_predictions(match_data: list[dict]) -> Path:
-    """Write output/output_raw.csv — most-likely score from Poisson λ, no points optimisation.
+    """Write output/output_raw.csv — direct model output, no points optimisation.
 
-    score1/score2 = floor(bp_lam_home/away), the mode of each team's goal distribution.
-    Also includes win/draw/loss probabilities for reference.
+    Columns (all oriented to the template's team1/team2):
+      score1/score2          — displayed score: actual if played, else floor(λ)
+      pred_score1/pred_score2— model's most-likely score floor(λ), NEVER the actual
+                               (so played matches still expose the genuine prediction)
+      sample_score1/2        — one random draw from the joint Poisson (seeded per
+                               match): a "realistic-looking" scoreline. Higher
+                               variance, lower accuracy than the most-likely score —
+                               for display only, not a better prediction.
+      p_home/draw/away       — displayed probs: locked 1/0/0 if played
+      pred_p_home/draw/away  — model's genuine pre-lock probabilities
+      lam_home/lam_away      — model expected goals (the true continuous prediction)
     """
+    import numpy as np
+
     template_path = ROOT / "templates" / "output_template.csv"
     with open(template_path, newline="") as f:
         template_rows = {
@@ -394,6 +405,13 @@ def _save_raw_predictions(match_data: list[dict]) -> Path:
         "Curacao":    "Curaçao",
     }
 
+    fieldnames = ["match_id", "group", "team1", "team2",
+                  "score1", "score2", "pred_score1", "pred_score2",
+                  "sample_score1", "sample_score2",
+                  "p_home", "p_draw", "p_away",
+                  "pred_p_home", "pred_p_draw", "pred_p_away",
+                  "lam_home", "lam_away"]
+
     lookup: dict[frozenset, dict] = {
         frozenset([m["home_team"], m["away_team"]]): m
         for m in match_data
@@ -406,50 +424,59 @@ def _save_raw_predictions(match_data: list[dict]) -> Path:
         key = frozenset([t1, t2])
         m = lookup.get(key)
         if m is None:
-            rows.append({
-                "match_id": mid, "group": tr["group"],
-                "team1": tr["team1"], "team2": tr["team2"],
-                "score1": "", "score2": "",
-                "p_home": "", "p_draw": "", "p_away": "",
-                "lam_home": "", "lam_away": "",
-            })
+            rows.append({k: "" for k in fieldnames}
+                        | {"match_id": mid, "group": tr["group"],
+                           "team1": tr["team1"], "team2": tr["team2"]})
             continue
 
         lam_h = m.get("bp_lam_home", 1.0)
         lam_a = m.get("bp_lam_away", 1.0)
+
+        # Model's most-likely score — the mode of each team's Poisson, ALWAYS the
+        # genuine prediction even for played matches (never the recorded result).
+        pred_h, pred_a = math.floor(lam_h), math.floor(lam_a)
+
+        # One realistic random draw from the joint Poisson, seeded per match so
+        # the file is reproducible. Shows the spread real football has; not used
+        # for scoring and not more accurate than the most-likely score.
+        rng = np.random.default_rng(20260000 + mid)
+        samp_h, samp_a = int(rng.poisson(lam_h)), int(rng.poisson(lam_a))
+
         if m.get("played"):
-            # Lock played matches to the actual score — the probability
-            # columns were already locked (1/0/0) but the score columns
-            # kept showing floor(λ), contradicting them in the same row.
             s_h = int(m["actual_home_goals"])
             s_a = int(m["actual_away_goals"])
         else:
-            s_h = math.floor(lam_h)
-            s_a = math.floor(lam_a)
-        s1, s2 = (s_h, s_a) if m["home_team"] == t1 else (s_a, s_h)
+            s_h, s_a = pred_h, pred_a
+
         p_h, p_d, p_a = m["p_home"], m["p_draw"], m["p_away"]
+        pp_h = m.get("pred_p_home", p_h)
+        pp_d = m.get("pred_p_draw", p_d)
+        pp_a = m.get("pred_p_away", p_a)
+
         if m["home_team"] != t1:
-            # Swap λs along with scores/probs — previously the λ columns stayed
-            # model-oriented, contradicting the other columns in the same row.
+            # Orient every home/away-paired field to the template's team1/team2.
+            s_h, s_a = s_a, s_h
+            pred_h, pred_a = pred_a, pred_h
+            samp_h, samp_a = samp_a, samp_h
             p_h, p_a = p_a, p_h
+            pp_h, pp_a = pp_a, pp_h
             lam_h, lam_a = lam_a, lam_h
 
         rows.append({
             "match_id": mid, "group": tr["group"],
             "team1": tr["team1"], "team2": tr["team2"],
-            "score1": s1, "score2": s2,
+            "score1": s_h, "score2": s_a,
+            "pred_score1": pred_h, "pred_score2": pred_a,
+            "sample_score1": samp_h, "sample_score2": samp_a,
             "p_home": f"{p_h:.3f}", "p_draw": f"{p_d:.3f}", "p_away": f"{p_a:.3f}",
+            "pred_p_home": f"{pp_h:.3f}", "pred_p_draw": f"{pp_d:.3f}",
+            "pred_p_away": f"{pp_a:.3f}",
             "lam_home": f"{lam_h:.3f}", "lam_away": f"{lam_a:.3f}",
         })
 
     out_path = OUTPUT_DIR / "output_raw.csv"
     with open(out_path, "w", newline="") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=["match_id", "group", "team1", "team2",
-                        "score1", "score2", "p_home", "p_draw", "p_away",
-                        "lam_home", "lam_away"],
-        )
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 

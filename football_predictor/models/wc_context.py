@@ -58,6 +58,13 @@ _MAX_GOALS: int = 10
 # 0.20 = trust market for 20% of expected goals; rest stays with our model.
 _MARKET_BLEND: float = 0.20
 
+# Market 1X2 blend weight: linear mix of final outcome probs with the market's
+# implied 1X2. Backtested in scripts/odds_blend_backtest.py (WC 2018+2022,
+# 48/48 odds coverage each): log-loss improves monotonically to w≈0.8 with
+# closing odds; 0.70 deployed because the WC 2026 cache holds earlier,
+# softer pre-match odds. Affects outcome probs only — scorelines stay on λ.
+_MARKET_1X2_BLEND: float = 0.70
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -250,6 +257,37 @@ def market_odds_adjust(
     return lam_h_adj, lam_a_adj
 
 
+def market_1x2_blend(
+    p_h: float,
+    p_d: float,
+    p_a: float,
+    ctx: dict[str, float],
+) -> tuple[float, float, float]:
+    """Linear blend of final outcome probs with the market's 1X2 probabilities.
+
+    Applied last: the market price already aggregates injuries, lineups and
+    team news, so it anchors the final number; the model side (1−w) carries
+    all earlier adjustments. No-op when the fixture has no cached odds.
+    """
+    if ctx.get("market_available", 0.0) < 0.5:
+        return p_h, p_d, p_a
+
+    mh = ctx.get("market_p_home", 0.0)
+    md = ctx.get("market_p_draw", 0.0)
+    ma = ctx.get("market_p_away", 0.0)
+    tot = mh + md + ma
+    if tot < 0.9:  # malformed / partial cache row
+        return p_h, p_d, p_a
+    mh, md, ma = mh / tot, md / tot, ma / tot
+
+    w = _MARKET_1X2_BLEND
+    p_h = (1 - w) * p_h + w * mh
+    p_d = (1 - w) * p_d + w * md
+    p_a = (1 - w) * p_a + w * ma
+    total = p_h + p_d + p_a
+    return p_h / total, p_d / total, p_a / total
+
+
 def absence_adjust(
     p_h: float,
     p_d: float,
@@ -295,7 +333,8 @@ def apply_to_match(
 ) -> tuple[float, float, float, float, float]:
     """Full post-processing pipeline for one match.
 
-    Order: venue λ adjustment → quality nudge (sofifa+api_form+tm) → player absence.
+    Order: venue λ adjustment → market λ blend (AH/O-U) → quality nudge
+    (sofifa+api_form+tm) → player absence → market 1X2 blend.
     rho: the fitted Dixon-Coles correlation (pass bp._rho) so the Poisson
     deltas share the ensemble's probability model.
     Returns (p_h, p_d, p_a, lam_h_adj, lam_a_adj).
@@ -326,5 +365,7 @@ def apply_to_match(
 
     if home_team and away_team:
         p_h, p_d, p_a = absence_adjust(p_h, p_d, p_a, home_team, away_team)
+
+    p_h, p_d, p_a = market_1x2_blend(p_h, p_d, p_a, ctx_row)
 
     return p_h, p_d, p_a, lam_h_adj, lam_a_adj

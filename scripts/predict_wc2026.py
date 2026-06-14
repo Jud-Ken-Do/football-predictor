@@ -144,6 +144,12 @@ def merge_actual_results(match_data: list[dict], actual: list[dict]) -> list[dic
 
     updated = []
     for m in match_data:
+        # Preserve the model's genuine pre-lock prediction so the UI can show
+        # "predicted vs actual" for played matches instead of "actual vs actual".
+        # bp_lam_home/away are already untouched below, so floor(λ) still gives
+        # the model's most-likely score even after a result is locked in.
+        m = dict(m, pred_p_home=m["p_home"], pred_p_draw=m["p_draw"],
+                 pred_p_away=m["p_away"])
         key = (normalise(m["home_team"]), normalise(m["away_team"]))
         if key in lookup:
             r = lookup[key]

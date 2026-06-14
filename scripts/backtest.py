@@ -401,6 +401,13 @@ def run_backtest(year: int, include_shap: bool = True, label: str = "", friendly
     if include_shap:
         plot_shap(xgb, X_test, year, label=label)
 
+    # Underscore keys: added after the metrics file write so experiment scripts
+    # (e.g. odds_blend_backtest.py) get the raw predictions without polluting
+    # the saved metrics txt.
+    metrics["_proba"] = proba
+    metrics["_y_true"] = y_true
+    metrics["_test_df"] = test_df
+
     return metrics
 
 
