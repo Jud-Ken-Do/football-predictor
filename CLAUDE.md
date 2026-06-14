@@ -134,7 +134,7 @@ Removed from training (2026-06-12, see ARCHITECTURE_REVIEW.md): `tournament_stag
 
 State per team: `x = [att, def]` in log-goals space.
 - **Time update**: `P += q²·Δt·I`; q tuned via EM (Shumway-Stoffer M-step), stored in `_LAST_TUNED_Q`
-- **EKF observation**: Jacobian `H = [λ, 0]` or `[0, λ]`; `S = HPH' + λ/match_weight`; Joseph-form covariance update
+- **EKF observation (joint 4-d, roadmap R4)**: both teams stacked into `z = [att_h, def_h, att_a, def_a]` with block-diagonal prior; home goals `H1 = [λ_h,0,0,λ_h]` then away goals `H2 = [0,λ_a,λ_a,0]` as coupled updates on the joint 4×4 covariance; `S = H M H' + λ/match_weight`; Joseph-form update; marginals scattered back per team (no global cross-team covariance). Replaced the per-team `extra_obs_var` approximation — mathematically correct but metric-neutral (XGB is piecewise-constant; see ARCHITECTURE_REVIEW R4)
 - **Training**: `use_smoothed=False` (default) — forward-only causal states, no RTS leakage
 - **RTS smoother**: available via `use_smoothed=True` for diagnostics only
 - Exposes `get_last_tuned_q()` classmethod so BayesPoisson can derive consistent half-life
@@ -179,10 +179,12 @@ Model: `log(λ_h) = μ + att_h + def_a + home_adv * I(not_neutral)`
 
 ### WC 2026 post-processing (`football_predictor/models/wc_context.py`)
 
-Applied after ensemble, before output. Three stages:
+Applied after ensemble, before output. Five stages:
 1. `venue_adjust(lam_h, lam_a, ctx)` — partial HA + altitude multipliers on λ; recomputes Poisson probs
-2. `quality_nudge(p_h, p_d, p_a, ctx)` — log-odds shift from sofifa overall diff + api_form pts diff
-3. `absence_adjust(p_h, p_d, p_a, home, away)` — market-value-weighted log-odds shift from `data/wc2026_player_injuries.json`
+2. `market_odds_adjust(lam_h, lam_a, ctx)` — blends market-implied λ (AH line + O/U 2.5) at `_MARKET_BLEND=0.20`
+3. `quality_nudge(p_h, p_d, p_a, ctx)` — log-odds shift from sofifa overall diff + api_form pts diff
+4. `absence_adjust(p_h, p_d, p_a, home, away)` — market-value-weighted log-odds shift from `data/wc2026_player_injuries.json`
+5. `market_1x2_blend(p_h, p_d, p_a, ctx)` — linear mix of final outcome probs with market 1X2 at `_MARKET_1X2_BLEND=0.70`; backtested in `scripts/odds_blend_backtest.py` (market beat the model stack on WC 2018+2022; w≈0.8 optimal with closing odds, 0.70 deployed for softer pre-match odds). Scorelines stay λ-driven; no-op without cached odds.
 
 ### Backtest (`scripts/backtest.py`)
 
