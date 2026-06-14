@@ -34,6 +34,7 @@ from football_predictor.models.gradient_boost import GradientBoostModel
 from football_predictor.models.bayesian_poisson import BayesianPoissonModel
 from football_predictor.models.calibration import TemperatureScaling
 from football_predictor.models.ensemble import EnsembleModel
+from football_predictor import constants
 from football_predictor.constants import DEFAULT_FEATURE_MODULES
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -242,6 +243,12 @@ def train_model(
 
     # Append actual WC 2026 results so Kalman EKF and BayesPoisson see them
     all_data = append_actual_results(all_data, quiet=quiet)
+
+    # Attach calibrated StatsBomb/football-data xG so the Kalman observes a
+    # lower-noise goals/xG blend (constants.USE_XG_OBSERVATION). No-op when off.
+    if constants.USE_XG_OBSERVATION:
+        from football_predictor.data.xg_attach import attach_calibrated_xg
+        all_data = attach_calibrated_xg(all_data)
 
     comp_mask = all_data["tournament"].str.lower().str.contains(
         "qualif|world cup|copa|euro|nations|africa|asian|gold cup", na=False

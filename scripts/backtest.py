@@ -149,6 +149,34 @@ def _accuracy(proba: np.ndarray, y_true: np.ndarray) -> float:
     return float((proba.argmax(axis=1) == y_true).mean())
 
 
+def _confederation_slice(
+    test_df: pd.DataFrame, proba: np.ndarray, y_true: np.ndarray
+) -> dict[str, dict]:
+    """Per-confederation log-loss / Brier / accuracy.
+
+    A match is attributed to a confederation if *either* team belongs to it, so
+    a small CAF/CONCACAF effect (the whole point of the StatsBomb xG data) is not
+    washed out in the pooled number. Confederations overlap by design.
+    """
+    from football_predictor.features.confederation import ConfederationFeatures
+    homes = test_df["home_team"].to_numpy()
+    aways = test_df["away_team"].to_numpy()
+    out: dict[str, dict] = {}
+    for conf in ["UEFA", "CONMEBOL", "AFC", "CAF", "CONCACAF"]:
+        mask = np.array([
+            ConfederationFeatures._get_conf(h) == conf or ConfederationFeatures._get_conf(a) == conf
+            for h, a in zip(homes, aways)
+        ])
+        if mask.sum() >= 3:
+            out[conf] = {
+                "n": int(mask.sum()),
+                "log_loss": _log_loss(proba[mask], y_true[mask]),
+                "brier": _brier(proba[mask], y_true[mask]),
+                "accuracy": _accuracy(proba[mask], y_true[mask]),
+            }
+    return out
+
+
 def _bootstrap_ci(
     proba: np.ndarray,
     y_true: np.ndarray,
@@ -258,9 +286,15 @@ def plot_shap(xgb: GradientBoostModel, X_test: pd.DataFrame, year: int, label: s
 
 # ── Main backtest function ────────────────────────────────────────────────────
 
-def run_backtest(year: int, include_shap: bool = True, label: str = "", friendly_weight: float = 0.3) -> dict:
+def run_backtest(
+    year: int,
+    include_shap: bool = True,
+    label: str = "",
+    friendly_weight: float = 0.3,
+    xg_mode: str = "baseline",
+) -> dict:
     print(f"\n{'─'*60}")
-    print(f"  Backtest: WC {year} Group Stage")
+    print(f"  Backtest: WC {year} Group Stage  [xg_mode={xg_mode}]")
     print(f"{'─'*60}")
 
     if year not in WC_DATE_RANGES:
@@ -290,6 +324,23 @@ def run_backtest(year: int, include_shap: bool = True, label: str = "", friendly
 
     print(f"  Training on {len(context)} pre-WC matches, testing on {len(test_df)} WC group stage matches.")
 
+    # ── xG observation ablation ───────────────────────────────────────────────
+    # The Kalman reads constants.USE_XG_OBSERVATION at construction (fresh
+    # instance per build_feature_matrix call), so we toggle it only around the
+    # feature build. xG is attached to `context` (the Kalman observes context
+    # matches); the date filter already applied to `context` keeps this causal —
+    # only xG sources predating the WC cutoff enter training.
+    import football_predictor.constants as _C
+    _prev_xg = _C.USE_XG_OBSERVATION
+    use_xg = xg_mode != "baseline"
+    if use_xg:
+        from football_predictor.data.xg_attach import attach_calibrated_xg
+        context = attach_calibrated_xg(context)
+        n_xg = int(context[["home_xg", "away_xg"]].notna().all(axis=1).sum())
+        print(f"  xG attached to {n_xg}/{len(context)} pre-cutoff training matches.")
+        if n_xg == 0:
+            print(f"  ⚠ No pre-{cutoff} xG coverage — xg_mode='{xg_mode}' is a no-op for WC {year}.")
+
     # ── Training data: competitive matches only ───────────────────────────────
     comp_mask = context["tournament"].str.contains(_COMP_FILTER, case=False, na=False)
     train_df = context[comp_mask].copy()
@@ -298,10 +349,14 @@ def run_backtest(year: int, include_shap: bool = True, label: str = "", friendly
     print("  Building feature matrices...")
     feature_mods = [m for m in DEFAULT_FEATURE_MODULES if m != "venue_wc2026"]
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        X_train, y_train = build_feature_matrix(train_df, feature_mods, context=context)
-        X_test_raw, y_test = build_feature_matrix(test_df, feature_mods, context=context)
+    _C.USE_XG_OBSERVATION = use_xg
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            X_train, y_train = build_feature_matrix(train_df, feature_mods, context=context)
+            X_test_raw, y_test = build_feature_matrix(test_df, feature_mods, context=context)
+    finally:
+        _C.USE_XG_OBSERVATION = _prev_xg
 
     X_train, _ = prune_correlated_features(X_train, threshold=0.95)
     X_test = X_test_raw.reindex(columns=X_train.columns, fill_value=0.0)
@@ -385,6 +440,15 @@ def run_backtest(year: int, include_shap: bool = True, label: str = "", friendly
     print(f"    Ensemble α:     {metrics['ensemble_alpha']:.3f} XGB + {ensemble.bp_weight:.3f} BP")
     print(f"    Temperature T:  {metrics['temperature']:.3f}")
 
+    # Per-confederation slice — keeps a CAF/CONCACAF effect from washing out.
+    conf_metrics = _confederation_slice(test_df, proba, y_true)
+    metrics["_conf"] = conf_metrics
+    if conf_metrics:
+        print("    By confederation (match counted if either team belongs):")
+        for conf, cm in conf_metrics.items():
+            print(f"      {conf:<9} n={cm['n']:<3} log-loss={cm['log_loss']:.4f}  "
+                  f"brier={cm['brier']:.4f}  acc={cm['accuracy']:.3f}")
+
     # Save metrics text
     suffix = f"_{label}" if label else ""
     metrics_path = OUTPUT_DIR / f"backtest_{year}{suffix}_metrics.txt"
@@ -429,7 +493,8 @@ def print_match_breakdown(test_df: pd.DataFrame, proba: np.ndarray, y_true: np.n
 
 # ── Continental tournament backtest ───────────────────────────────────────────
 
-def run_continental_backtest(name: str, cfg: dict, friendly_weight: float = 0.3) -> dict:
+def run_continental_backtest(name: str, cfg: dict, friendly_weight: float = 0.3,
+                             xg_mode: str = "baseline") -> dict:
     """Evaluate model on a continental tournament group stage.
 
     Uses the same train/eval pipeline as WC backtests but with a
@@ -437,7 +502,7 @@ def run_continental_backtest(name: str, cfg: dict, friendly_weight: float = 0.3)
     Provides additional statistical power beyond the 96-match WC sample.
     """
     print(f"\n{'─'*60}")
-    print(f"  Continental backtest: {name}")
+    print(f"  Continental backtest: {name}  [xg_mode={xg_mode}]")
     print(f"{'─'*60}")
 
     all_data = load_results(from_year=2000, friendly_weight=friendly_weight)
@@ -462,14 +527,28 @@ def run_continental_backtest(name: str, cfg: dict, friendly_weight: float = 0.3)
 
     print(f"  Training on {len(context)} pre-tournament matches, testing on {len(test_df)} group stage matches.")
 
+    # ── xG observation ablation (see run_backtest for rationale) ───────────────
+    import football_predictor.constants as _C
+    _prev_xg = _C.USE_XG_OBSERVATION
+    use_xg = xg_mode != "baseline"
+    if use_xg:
+        from football_predictor.data.xg_attach import attach_calibrated_xg
+        context = attach_calibrated_xg(context)
+        n_xg = int(context[["home_xg", "away_xg"]].notna().all(axis=1).sum())
+        print(f"  xG attached to {n_xg}/{len(context)} pre-cutoff training matches.")
+
     comp_mask = context["tournament"].str.contains(_COMP_FILTER, case=False, na=False)
     train_df = context[comp_mask].copy()
 
     feature_mods = [m for m in DEFAULT_FEATURE_MODULES if m != "venue_wc2026"]
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        X_train, y_train = build_feature_matrix(train_df, feature_mods, context=context)
-        X_test_raw, y_test = build_feature_matrix(test_df, feature_mods, context=context)
+    _C.USE_XG_OBSERVATION = use_xg
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            X_train, y_train = build_feature_matrix(train_df, feature_mods, context=context)
+            X_test_raw, y_test = build_feature_matrix(test_df, feature_mods, context=context)
+    finally:
+        _C.USE_XG_OBSERVATION = _prev_xg
 
     X_train, _ = prune_correlated_features(X_train, threshold=0.95)
     X_test = X_test_raw.reindex(columns=X_train.columns, fill_value=0.0)
@@ -527,6 +606,8 @@ def run_continental_backtest(name: str, cfg: dict, friendly_weight: float = 0.3)
         "accuracy": _accuracy(proba, y_true),
         "ece": _compute_ece(proba, y_true),
     }
+
+    metrics["_conf"] = _confederation_slice(test_df, proba, y_true)
 
     print(f"\n  Results — {name} ({metrics['n_matches']} group-stage matches):")
     print(f"    Log-loss: {ll:.4f}  [{ll_lo:.4f}, {ll_hi:.4f}] 95% CI  (uniform: {metrics['log_loss_uniform']:.4f})")
@@ -588,6 +669,73 @@ def tune_friendly_weight(years: list[int]) -> float:
     return best_w
 
 
+# ── xG observation ablation ───────────────────────────────────────────────────
+
+def run_xg_ablation(years: list[int], friendly_weight: float = 0.3,
+                    include_shap: bool = False, continental: bool = False) -> None:
+    """Baseline (goals) vs full (goals/xG blend) Kalman observation, per fold.
+
+    Decision gate for USE_XG_OBSERVATION: keep only if log-loss improves
+    consistently and the improvement is outside bootstrap-CI noise. Folds with no
+    pre-cutoff xG coverage are reported as untestable rather than silently shown
+    as "no change". With ``continental=True`` the AFCON 2022 / Asian Cup 2024
+    folds add CAF/AFC test power — exactly the gap the StatsBomb data fills.
+    """
+    print(f"\n{'═'*72}")
+    print("  xG-OBSERVATION ABLATION  (baseline = goals,  full = goals/xG blend)")
+    print(f"{'═'*72}")
+
+    rows = []
+    for year in years:
+        base = run_backtest(year, include_shap=False, label=f"{year}_baseline",
+                            friendly_weight=friendly_weight, xg_mode="baseline")
+        full = run_backtest(year, include_shap=include_shap, label=f"{year}_full",
+                            friendly_weight=friendly_weight, xg_mode="full")
+        if base and full:
+            rows.append((year, base, full))
+
+    if continental:
+        for name, cfg in CONTINENTAL_CONFIGS.items():
+            base = run_continental_backtest(name, cfg, friendly_weight, xg_mode="baseline")
+            full = run_continental_backtest(name, cfg, friendly_weight, xg_mode="full")
+            if base and full:
+                rows.append((name, base, full))
+
+    print(f"\n{'═'*72}")
+    print("  SUMMARY — log-loss (lower is better)")
+    print(f"  {'Year':<6} {'baseline':>10} {'full(xG)':>10} {'Δ':>9} {'baseline 95% CI':>22} {'verdict'}")
+    print("  " + "-" * 78)
+    for year, base, full in rows:
+        d = full["log_loss"] - base["log_loss"]
+        ci = f"[{base['log_loss_ci_lo']:.3f},{base['log_loss_ci_hi']:.3f}]"
+        # "real" improvement if full's point estimate falls below baseline CI lower bound
+        if abs(d) < 1e-6:
+            verdict = "no-op (no xG coverage)"
+        elif d < 0 and full["log_loss"] < base["log_loss_ci_lo"]:
+            verdict = "IMPROVES (outside CI)"
+        elif d < 0:
+            verdict = "better (within noise)"
+        else:
+            verdict = "worse"
+        print(f"  {year:<6} {base['log_loss']:>10.4f} {full['log_loss']:>10.4f} "
+              f"{d:>+9.4f} {ci:>22}  {verdict}")
+
+    # Per-confederation deltas (where the StatsBomb gap-fill should show up).
+    print("\n  Per-confederation log-loss Δ (full − baseline; negative = better):")
+    print(f"  {'Year':<6} {'Conf':<9} {'baseline':>10} {'full':>10} {'Δ':>9} {'n':>4}")
+    print("  " + "-" * 56)
+    for year, base, full in rows:
+        bc, fc = base.get("_conf", {}), full.get("_conf", {})
+        for conf in fc:
+            if conf in bc:
+                d = fc[conf]["log_loss"] - bc[conf]["log_loss"]
+                print(f"  {year:<6} {conf:<9} {bc[conf]['log_loss']:>10.4f} "
+                      f"{fc[conf]['log_loss']:>10.4f} {d:>+9.4f} {fc[conf]['n']:>4}")
+
+    print("\n  DECISION RULE: set constants.USE_XG_OBSERVATION = True only if 'full'")
+    print("  improves log-loss consistently and outside CI on years with xG coverage.")
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -600,10 +748,17 @@ def main() -> None:
                         help="Grid-search friendly_weight and report optimal value")
     parser.add_argument("--friendly-weight", type=float, default=0.3,
                         help="Friendly match weight (default 0.3, override or use --tune-friendly-weight)")
+    parser.add_argument("--ablation", action="store_true",
+                        help="Run baseline vs xG-observation (full) per year and compare")
     args = parser.parse_args()
 
     if args.tune_friendly_weight:
         tune_friendly_weight(args.years)
+        return
+
+    if args.ablation:
+        run_xg_ablation(args.years, friendly_weight=args.friendly_weight,
+                        include_shap=not args.no_shap, continental=args.continental)
         return
 
     all_metrics = []

@@ -87,6 +87,25 @@ class ModelType(Enum):
 
 DEFAULT_MODEL = ModelType.GRADIENT_BOOST
 
+# ── xG observation in Kalman EKF ──────────────────────────────────────────────
+# When True, the Kalman filter observes a blend of actual goals and calibrated
+# per-match xG (StatsBomb + football-data) instead of raw goals — a lower-noise
+# state-space observation (Koopman-Lit). Enabled 2026-06-14 after the xG
+# ablation (scripts/backtest.py --ablation --continental). Honest read of the
+# evidence: full(xG) lowered log-loss on 4 of 5 covered folds (WC2022 -0.0148,
+# AFCON2022 -0.0086, Euro2020 -0.0042, Copa2021 -0.0039) and was a wash on the
+# 5th (AsianCup2023 -0.0002); none got worse. Every per-fold gain sits WITHIN
+# the wide bootstrap CIs — this is a CONSISTENCY-based decision (4/5 same
+# direction, sign-test p≈0.06), NOT a CI-beating one. The supporting signal is
+# the per-confederation slice: on WC2022 the gap confederations improve most
+# (CONCACAF -0.033, CAF/AFC -0.016), exactly the mechanism's promise, and live
+# coverage (AFCON23 + Copa24 + WC22 + qualifiers) is far better than the thin
+# (~1%) pre-2022 backtest coverage — so the CAF/CONCACAF gain for WC 2026 is an
+# extrapolation of a mechanism tested mostly on UEFA data. Revert to False to disable.
+USE_XG_OBSERVATION = True
+# obs = XG_OBS_BLEND * goals + (1 - XG_OBS_BLEND) * xg  (per team, when xG present)
+XG_OBS_BLEND = 0.5
+
 # ── Feature modules active by default ─────────────────────────────────────────
 
 DEFAULT_FEATURE_MODULES = [

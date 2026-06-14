@@ -135,6 +135,7 @@ Removed from training (2026-06-12, see ARCHITECTURE_REVIEW.md): `tournament_stag
 State per team: `x = [att, def]` in log-goals space.
 - **Time update**: `P += q²·Δt·I`; q tuned via EM (Shumway-Stoffer M-step), stored in `_LAST_TUNED_Q`
 - **EKF observation (joint 4-d, roadmap R4)**: both teams stacked into `z = [att_h, def_h, att_a, def_a]` with block-diagonal prior; home goals `H1 = [λ_h,0,0,λ_h]` then away goals `H2 = [0,λ_a,λ_a,0]` as coupled updates on the joint 4×4 covariance; `S = H M H' + λ/match_weight`; Joseph-form update; marginals scattered back per team (no global cross-team covariance). Replaced the per-team `extra_obs_var` approximation — mathematically correct but metric-neutral (XGB is piecewise-constant; see ARCHITECTURE_REVIEW R4)
+- **xG observation (2026-06-14, `constants.USE_XG_OBSERVATION=True`)**: when enabled, the EKF observes `0.5·goals + 0.5·xg` (calibrated xG attached via `data/xg_attach.py`) instead of raw goals — a lower-noise state-space observation (xG predicts future goals better than goals; Koopman-Lit). Falls back to goals when a match has no xG. Validated by `scripts/backtest.py --ablation --continental` (5/5 folds improved log-loss, biggest gains in CAF/CONCACAF; within per-fold CI but consistent across folds). xG sum is part of `_data_fingerprint` so EM q re-tunes when toggled.
 - **Training**: `use_smoothed=False` (default) — forward-only causal states, no RTS leakage
 - **RTS smoother**: available via `use_smoothed=True` for diagnostics only
 - Exposes `get_last_tuned_q()` classmethod so BayesPoisson can derive consistent half-life
@@ -165,6 +166,7 @@ Model: `log(λ_h) = μ + att_h + def_a + home_adv * I(not_neutral)`
 | `football_data_org.py` | football-data.org REST API | European league results. Free tier: 2 seasons. |
 | `football_data_co_uk.py` | football-data.co.uk WorldCup2026.xlsx | xG (339/889 qualifier matches), bookmaker odds (WC 2018/2022) |
 | `api_football.py` | api-sports.io v3 | Injuries/suspensions pre-cached for WC 2026 fixtures |
+| `statsbomb.py` | StatsBomb open-data (GitHub) | Per-match team xG from event data — AFCON 2023, Copa 2024, WC 2018/2022, Euro 2020/2024. Fills CAF/CONCACAF xG gap. Attribution required. Cached to `~/.cache/football_predictor/statsbomb/`. |
 
 **xG coverage:**
 - Has xG: UEFA qualifiers, AFC qualifiers, CONMEBOL qualifiers, some CONCACAF
@@ -259,7 +261,7 @@ Current calibrated values (from H2H analysis, updated 2026-06-10):
 
 ## Known limitations (not bugs, architectural constraints)
 
-1. **xG gap for CAF/CONCACAF** — FBref Cloudflare-blocked; api-sports.io has no xG for these confederations. African and CONCACAF teams rely on form/Elo/Kalman without xG signal.
+1. **xG gap for CAF/CONCACAF** — *substantially addressed (2026-06-14)* via StatsBomb open-data (`data/sources/statsbomb.py`): AFCON 2023 covers all 9 CAF WC teams, Copa América 2024 covers MEX/USA/CAN, plus WC 2022 / Euro 2020/2024 / WC 2018. FBref remains Cloudflare-blocked and api-sports.io still has no xG for these confederations, but the gap teams now carry calibrated xG. Per-match xG = Σ `shot.statsbomb_xg` over periods ≤ 4 (excludes penalty shootouts). Multi-provider xG is moment-matched onto goals per source (`models/xg_calibration.py`) before use; consumed only in aggregate (Kalman), never mixed per-match.
 2. **sofifa ratings are static** — EA FC 26 snapshot; no historical versions available. Correct for WC 2026 prediction but would be leakage if mistakenly added to training features. Architecture prevents this (WC_CONTEXT_MODULES only).
 3. **MCMC not default** — MAP is always used; `--mcmc` flag adds ~5 min for full posterior. Impact on point estimates is small; main benefit is uncertainty quantification.
 4. **No live odds** — WC 2026 fixtures have `odds_available=0.0` pre-tournament. Ensemble context-adaptive α defaults toward scalar when odds signal is absent.

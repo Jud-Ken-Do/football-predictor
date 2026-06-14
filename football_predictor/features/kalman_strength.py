@@ -91,12 +91,18 @@ def _data_fingerprint(df: pd.DataFrame) -> tuple:
     # retraining with a different friendly weight in the same process would
     # falsely cache-hit on the old q.
     mw_sum = float(df["match_weight"].sum()) if "match_weight" in df.columns else 0.0
+    # xG sum included so the EM-tuned q (and the whole cache) rebuilds when the
+    # observation switches between goals and the goals/xG blend.
+    xg_sum = 0.0
+    if "home_xg" in df.columns and "away_xg" in df.columns:
+        xg_sum = float(df["home_xg"].fillna(0).sum() + df["away_xg"].fillna(0).sum())
     return (
         len(df),
         str(df["date"].min()),
         str(df["date"].max()),
         int(df["home_goals"].sum() + df["away_goals"].sum()),
         round(mw_sum, 3),
+        round(xg_sum, 3),
     )
 
 
@@ -135,8 +141,8 @@ def _joint_obs_update(
 def _ekf_match_update(
     h_state: dict,
     a_state: dict,
-    home_goals: int,
-    away_goals: int,
+    home_goals: float,
+    away_goals: float,
     neutral: bool,
     match_weight: float = 1.0,
 ) -> None:
@@ -281,9 +287,19 @@ class KalmanStrengthFeatures(FeatureModule):
         """
         return cls._LAST_TUNED_Q
 
-    def __init__(self, use_smoothed: bool = False, tune_q: bool = True) -> None:
+    def __init__(
+        self,
+        use_smoothed: bool = False,
+        tune_q: bool = True,
+        use_xg: bool | None = None,
+        xg_blend: float | None = None,
+    ) -> None:
+        from football_predictor import constants as _c
         self._use_smoothed = use_smoothed
         self._tune_q = tune_q
+        # Observe a goals/xG blend instead of raw goals (off unless backtested).
+        self._use_xg = _c.USE_XG_OBSERVATION if use_xg is None else use_xg
+        self._xg_blend = _c.XG_OBS_BLEND if xg_blend is None else xg_blend
         self._q_per_year: float = _Q_PER_YEAR
         self._tuned: bool = False
         self._states: dict[str, dict] = {}
@@ -384,6 +400,25 @@ class KalmanStrengthFeatures(FeatureModule):
             self._tuned = True
         self._build_cache(data)
 
+    def _observation(self, row: pd.Series) -> tuple[float, float]:
+        """The (home, away) goal observations fed to the EKF for one match.
+
+        With xG observation enabled and calibrated xG present on the row, return
+        ``β·goals + (1-β)·xg`` per team (a lower-noise observation). Otherwise the
+        raw goals. The innovation in the EKF is ``obs - λ``, so float blends are
+        valid drop-ins for the integer scoreline.
+        """
+        hg = float(row["home_goals"])
+        ag = float(row["away_goals"])
+        if not self._use_xg:
+            return hg, ag
+        hxg = row.get("home_xg")
+        axg = row.get("away_xg")
+        if hxg is None or axg is None or pd.isna(hxg) or pd.isna(axg):
+            return hg, ag
+        b = self._xg_blend
+        return b * hg + (1 - b) * float(hxg), b * ag + (1 - b) * float(axg)
+
     def _run_forward_pass(
         self, df: pd.DataFrame, record_hist: bool
     ) -> tuple[dict, dict, dict | None]:
@@ -433,9 +468,10 @@ class KalmanStrengthFeatures(FeatureModule):
             }
 
             for _, row in group.iterrows():
+                home_obs, away_obs = self._observation(row)
                 _ekf_match_update(
                     states[row["home_team"]], states[row["away_team"]],
-                    int(row["home_goals"]), int(row["away_goals"]),
+                    home_obs, away_obs,
                     bool(row.get("neutral", False)),
                     float(row.get("match_weight", 1.0)),
                 )

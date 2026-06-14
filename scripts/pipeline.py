@@ -113,6 +113,11 @@ def step_load(from_year: int = 2010, friendly_weight: float = 0.7) -> tuple:
     # update from live tournament matches — same path as predict_wc2026.py.
     from scripts.predict_wc2026 import append_actual_results
     all_data = append_actual_results(all_data, quiet=True)
+    # Calibrated xG for the Kalman observation (constants.USE_XG_OBSERVATION).
+    from football_predictor import constants as _c
+    if _c.USE_XG_OBSERVATION:
+        from football_predictor.data.xg_attach import attach_calibrated_xg
+        all_data = attach_calibrated_xg(all_data)
     comp_mask = all_data["tournament"].str.lower().str.contains(
         "qualif|world cup|copa|euro|nations|africa|asian|gold cup", na=False
     )
