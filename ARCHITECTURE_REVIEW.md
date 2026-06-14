@@ -369,7 +369,19 @@ Every roadmap change (R1–R10) must beat this average to be kept.
 | 2026-06-13 | + R3 stacked calibration | 0.9489 | 0.9821 | 1.0747 | **1.0019** |
 | 2026-06-13 | + R4 joint Kalman update — **metric-neutral, kept as correctness** | 0.9487 | 0.9884 | 1.0843 | 1.0071 |
 
-Current bar for new changes: **1.0019**. (The 1.0071 R4 row reflects same-data cache drift since the 1.0019 run, not an R4 regression — R4 is bit-identical to its own-data baseline; see R4 note.)
+Current bar (WC-only set): **1.0019**. (The 1.0071 R4 row reflects same-data cache drift since the 1.0019 run, not an R4 regression — R4 is bit-identical to its own-data baseline; see R4 note.)
+
+### 2026-06-14 — wider eval adopted + new signals
+
+The 144-match WC-only set has ±0.1 CIs that can't separate signal from noise (R4 moved it by 0.000; R1/R3 by amounts inside the CI). **New reference: the wider backtest** (`backtest.py --continental`) over **7 tournaments / 266 matches** — WC 2014/18/22 + Copa 2021, Euro 2020, AFCON 2022, Asian Cup 2023 — at friendly_weight=0.8.
+
+| Date | Change | Eval | Avg log-loss |
+|---|---|---|---|
+| 2026-06-14 | wide-eval **baseline** | 266 matches | **0.9512** |
+| 2026-06-14 | **+ `rest` feature — kept** | 266 matches | **0.9481** (WC2014 0.9487→0.9378, WC2018→0.9758, Euro→0.9113, AFCON→1.0567; 4 better / 3 worse, net positive) |
+| 2026-06-14 | **+ xG-in-Kalman observation — kept** (`USE_XG_OBSERVATION=True`) | 5 covered folds (ablation) | 4/5 folds improved, 1 wash, none worse; gap confederations gain most on WC2022 (CONCACAF −0.033, CAF/AFC −0.016). Within per-fold CI → consistency-based call; CAF/CONCACAF 2026 gain is an extrapolation (StatsBomb coverage postdates the backtests). See `XG_INTEGRATION_PLAN.md`. |
+
+**Current bar (wide set): ~0.9481** (rest kept; xG enabled on top). Both are modest/within-CI but directionally consistent and don't regress — same standard as R5/R7. Not roadmap items (R1–R10); recorded here for the baseline trail. Re-run with `--tune --retune` after the 2026-06-14 feature changes is in progress (re-optimises XGB params + friendly_weight for the new feature set).
 
 Continental + WC2014 baseline (same day, via `backtest.py --years 2014 --continental`).
 ⚠️ Run with the backtest CLI default `friendly_weight=0.3`, NOT the deployed 0.8 —

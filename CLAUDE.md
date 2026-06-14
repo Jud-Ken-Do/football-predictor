@@ -7,15 +7,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A modular football match outcome prediction system targeting **FIFA World Cup 2026**. Predicts home win / draw / away win probabilities using a full SOTA scientific pipeline:
 
 **Model stack (in order of application):**
-1. **XGBoost** — 3-class classifier over ~120 training features (13 modules); near-duplicate features pruned at |Pearson r| > 0.95
+1. **XGBoost** — 3-class classifier over ~120 training features (12 modules); near-duplicate features pruned at |Pearson r| > 0.95
 2. **Temperature Scaling** — single scalar T calibrates XGBoost log-probabilities (Guo et al. ICML 2017)
 3. **Bayesian Hierarchical Poisson** — MAP log-linear goal model (Baio & Blangiardo 2010); half-life derived from Kalman EM-tuned q; Dixon-Coles ρ correction for low-score cells
 4. **Context-Adaptive Ensemble** — per-match α = sigmoid(w · [odds_available, kalman_uncertainty, log1p_h2h] + b), learned via NLL + L2; scalar fallback when context unavailable
-5. **WC 2026 Post-Processing** — venue λ adjustment, sofifa+api_form quality nudge, player absence penalty (`models/wc_context.py`)
+5. **WC 2026 Post-Processing** — venue λ adjustment, sofifa+api_form quality nudge, player absence penalty, market 1X2 blend (W17, `_MARKET_1X2_BLEND=0.70`) (`models/wc_context.py`)
 
 **Rating systems feeding XGBoost:**
 - **Glicko-2** (Glickman 2001) — rating μ + deviation φ + volatility σ, Illinois algorithm; match-importance weighted
-- **Extended Kalman Filter** (Koopman & Lit 2015) — time-varying attack/defence state; match-importance weighted R; EM-tuned process noise q; forward-only causal states (no RTS leakage into training features)
+- **Extended Kalman Filter** (Koopman & Lit 2015) — time-varying attack/defence state; joint 4-d per-match update (R4); match-importance weighted R; EM-tuned process noise q; forward-only causal states (no RTS leakage); optionally observes a goals/xG blend (`USE_XG_OBSERVATION`)
 
 ## Environment
 
@@ -77,7 +77,7 @@ python3.11 -m pytest tests/ -v
 Unified 7-step orchestrator with structured print output and per-step timing:
 1. FETCH — api_form, transfermarkt, injuries (cache-aware, skipped if fresh)
 2. LOAD — historical data from 2010
-3. FEAT — build_feature_matrix() across 13 DEFAULT_FEATURE_MODULES + prune_correlated_features(threshold=0.95)
+3. FEAT — build_feature_matrix() across 12 DEFAULT_FEATURE_MODULES + prune_correlated_features(threshold=0.95)
 4. TRAIN — XGB (+ optional Optuna tuning with WC 2018/2022 as val folds) + temperature scaling + BayesPoisson (EM-derived half-life, DC ρ) + context-adaptive ensemble; T and α fitted via stacked out-of-time calibration (`models/stacking.py`: 4 expanding-window folds, pooled OOS predictions), final XGB+BP refit on full window
 5. PRED — 72 group stage match probabilities + WC 2026 post-processing (venue, quality, absence)
 6. SIM — 50k Monte Carlo simulations; Kalman posterior uncertainty propagated to λ via lognormal resampling
@@ -100,14 +100,15 @@ Every feature source extends `FeatureModule` (`base.py`) with:
 
 Registered in `features/__init__.py::REGISTRY`. Two sets of active modules in `constants.py`:
 
-**`DEFAULT_FEATURE_MODULES` (11 modules — used in XGBoost training):**
+**`DEFAULT_FEATURE_MODULES` (12 modules — used in XGBoost training):**
 
 | Module | File | Features | Notes |
 |---|---|---|---|
 | `elo` | `elo.py` | 4 | Classic Elo; K=40 intl, K=60 WC; match-importance weighted K |
 | `glicko2` | `glicko2.py` | 6 | Rating + RD + win prob; Illinois σ update; match-importance weighted |
-| `kalman_strength` | `kalman_strength.py` | 13 | EKF forward-only (use_smoothed=False); match-importance weighted R; EM-tuned q |
+| `kalman_strength` | `kalman_strength.py` | 13 | EKF forward-only (use_smoothed=False); joint 4-d update (R4); match-importance weighted R; EM-tuned q; optional xG observation (`USE_XG_OBSERVATION`) |
 | `form` | `form.py` | ~15 | Rolling pts/goals/GD over 5/10/20 matches |
+| `rest` | `rest.py` | 8 | Days since last match + trailing 14/30-day fixture load (Tier-0); causal, no external data |
 | `sos` | `sos.py` | ~6 | Strength-of-schedule: opponent-quality-adjusted win rate |
 | `h2h` | `h2h.py` | ~8 | H2H win rate, avg goals, last 10 meetings |
 | `squad_strength` | `squad_strength.py` | 14 | 40-match rolling attack/defence from competitive history |
@@ -244,9 +245,10 @@ Current calibrated values (from H2H analysis, updated 2026-06-10):
 ## What's working
 
 - Full pipeline runs end-to-end (`python3.11 scripts/pipeline.py`)
-- 11 training feature modules (130 → ~109 features after correlation pruning); 7 WC context modules as post-processing
-- XGBoost + Temperature Scaling + BayesPoisson MAP (DC ρ) + Context-Adaptive Ensemble
-- Kalman EKF with EM-tuned process noise q; match-importance weighted; forward-only causal states
+- 12 training feature modules (incl. `rest`; ~138 → ~115 features after correlation pruning); 7 WC context modules as post-processing
+- XGBoost + Temperature Scaling + BayesPoisson MAP (DC ρ) + Context-Adaptive Ensemble + market 1X2 blend (W17)
+- Kalman EKF with EM-tuned process noise q; joint 4-d update (R4); match-importance weighted; forward-only causal states; goals/xG blended observation (`USE_XG_OBSERVATION=True`, StatsBomb + football-data xG calibrated via `data/xg_attach.py`)
+- Evaluation: wide backtest (`--continental`) over 7 tournaments / 266 matches is the trustworthy reference (baseline ~0.9512 avg log-loss)
 - Glicko-2 with match-importance weighting (Illinois σ update)
 - Monte Carlo tournament simulator with Kalman posterior λ resampling (50k sims, ~10s)
 - Optional full MCMC posterior (`--mcmc` flag; non-centered parameterisation, 0 divergences)

@@ -31,7 +31,7 @@ this _class_ of signal moves the metric at all before sourcing anything.
 
 | Signal | Why it helps | Status |
 |---|---|---|
-| **Rest days / congestion** | days since last match + matches in last 30d → fatigue/freshness, large at tournaments | ✅ Trainable, free |
+| ~~**Rest days / congestion**~~ | days since last match + matches in last 30d → fatigue/freshness | ✅ **DONE 2026-06-14** (`features/rest.py`, kept: wide backtest 0.9512→0.9481) |
 | **Qualification dominance** | pts %, goal diff, win rate in this team's qualifying campaign → "cruised in vs scraped in" | ✅ Trainable, free |
 | **Penalty-shootout strength** | historical shootout W/L + conversion rate → fixes knockout coin-flips | ✅ Trainable, free |
 
@@ -43,12 +43,20 @@ this _class_ of signal moves the metric at all before sourcing anything.
 | **Manager tenure / stability** | months under current manager at match date → settled setups travel well | Transfermarkt, Wikipedia | ✅ "manager-since" dates per team |
 | **GK shot-stopping** | (xG faced − goals conceded) rolling → outsized in low-scoring knockout games | derive where xG exists; FBref GK tables | ✅ where xG exists |
 
-## Tier 2 — Biggest actual hole: fill the xG gap
+## Tier 2 — Biggest actual hole: fill the xG gap ✅ SUBSTANTIALLY DONE (2026-06-14)
 
-Not a new signal — **completing an existing one**. ~1/3 of the field has **no
-xG**: Morocco, Senegal, Egypt, Algeria, Ghana, Ivory Coast, Cape Verde, DR Congo,
-Tunisia, USA, Mexico, Canada, Panama, Curaçao, Haiti. Closing this likely beats
-any exotic new feature.
+**Closed via StatsBomb open-data** (`data/sources/statsbomb.py`), consumed as a
+Kalman observation rather than an XGB feature (see CLAUDE.md → Kalman EKF; flagged
+by `USE_XG_OBSERVATION=True`). 12 of the 13 previously-uncovered teams now carry
+calibrated xG (AFCON 2023 → 9 CAF; Copa 2024 → MEX/USA/CAN; + WC 2022/2018, Euro
+2020/2024). **Only New Zealand remains uncovered.** Ablation: 4/5 covered folds
+improved, none worse (within-CI / consistency-based; CAF/CONCACAF gain for 2026 is
+an extrapolation). Remaining open: NZ xG, and fresher 2025-26 qualifier xG (would
+need a manual FBref pull — Cloudflare blocks automation).
+
+Original gap (now mostly filled): Morocco, Senegal, Egypt, Algeria, Ghana, Ivory
+Coast, Cape Verde, DR Congo, Tunisia, USA, Mexico, Canada — all covered; Panama,
+Curaçao, Haiti were already covered by the Excel source.
 
 - Sources: StatsBomb Open Data (free, some internationals), Understat, FBref
   (Cloudflare-blocked but scrapable with effort), or paid Opta/StatsBomb.

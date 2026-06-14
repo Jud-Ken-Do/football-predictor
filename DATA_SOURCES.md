@@ -6,6 +6,7 @@
 |---|---|---|---|
 | **martj42 `international_results`** (GitHub CSV, also on Kaggle) | `data/sources/international_results.py` | 47,000+ international matches 1872–present (date, teams, scores, tournament). **Primary training data.** | ✅ live, auto-refresh if cache >48h |
 | **football-data.co.uk** `WorldCup2026.xlsx` | `data/sources/football_data_co_uk.py` | WC-2026 **qualifier xG** (339 matches), bookmaker **closing odds** (WC 2018/2022), shots/corners | ✅ `data/raw/WorldCup2026.xlsx` present |
+| **StatsBomb open-data** (GitHub) | `data/sources/statsbomb.py` | Per-match team **xG** from event data — AFCON 2023, Copa 2024, WC 2018/2022, Euro 2020/2024. **Fills the CAF/CONCACAF xG gap.** Consumed as a Kalman observation (`USE_XG_OBSERVATION`). Attribution required. | ✅ added 2026-06-14, cached to `~/.cache/football_predictor/statsbomb/` |
 | **API-Football** (api-sports.io v3) | `data/sources/api_football.py` | Injuries/suspensions, last-10 form, live **market odds** (AH / O-U 2.5 / BTTS / 1X2) for WC 2026 | ✅ cached (`data/api_form_cache.json`, `data/wc2026_odds_cache.json`) |
 | **football-data.org** REST API | `data/sources/football_data_org.py` | European league results (free tier: 2 seasons) | ✅ secondary |
 | **Dato-Futbol** FIFA rankings | `features/rankings.py` | FIFA world-ranking points 1992–2024 | ✅ |
@@ -29,9 +30,14 @@ small samples. We source it from two places (`features/xg_form.py`):
 
 ---
 
-## 3. The gap — 13 of 48 teams have NO xG
+## 3. The gap — was 13 of 48 teams; now 12 closed via StatsBomb (2026-06-14)
 
-Missing (≈27% of the field):
+> **✅ RESOLVED for 12/13.** StatsBomb open-data (`data/sources/statsbomb.py`)
+> now supplies calibrated xG for all but **New Zealand**, consumed as a Kalman
+> observation (`USE_XG_OBSERVATION=True`). The analysis below is the *original*
+> diagnosis that motivated the fix; kept for the record.
+
+Originally missing (≈27% of the field):
 
 - **CAF (9):** Algeria, Cabo Verde, Egypt, Ghana, Ivory Coast, Morocco, Senegal, South Africa, Tunisia
 - **CONCACAF hosts (3):** Canada, Mexico, United States
