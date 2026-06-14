@@ -10,6 +10,7 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "scripts"))
+sys.path.insert(0, str(_ROOT / "app"))   # explicit: `import bracket` (not via cwd)
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -43,6 +44,8 @@ from predict_wc2026 import (
     QF_PAIRS,
     SF_PAIRS,
 )
+
+import bracket as _bracket   # centred knockout-bracket builder + renderer
 
 ALL_TEAMS = [t for grp in GROUPS.values() for t in grp]
 ROUNDS = ["r32", "r16", "qf", "sf", "final", "winner"]
@@ -318,6 +321,11 @@ def _pc(fig, **kw) -> None:
         ),
         legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="rgba(255,255,255,0.08)"),
     )
+    # Setting title_font (above) without a title.text makes Streamlit/Plotly
+    # render a literal "undefined" as the chart title. Force an empty title for
+    # any figure that didn't set one (the bracket, heatmaps, etc.).
+    if not getattr(fig.layout.title, "text", None):
+        fig.update_layout(title_text="")
     fig.update_xaxes(gridcolor="rgba(255,255,255,0.05)", zerolinecolor="rgba(255,255,255,0.08)")
     fig.update_yaxes(gridcolor="rgba(255,255,255,0.05)", zerolinecolor="rgba(255,255,255,0.08)")
     st.plotly_chart(fig, **kw)
@@ -480,12 +488,19 @@ with st.sidebar:
 
     # ── Model stack info ──────────────────────────────────────────────────────
     with st.expander("🧠 Model stack", expanded=False):
+        from football_predictor import constants as _cst
+        _blend = getattr(_cst, "XG_OBS_BLEND", 0.5)
+        _xg_on = getattr(_cst, "USE_XG_OBSERVATION", False)
         st.markdown(
-            "1. XGBoost · 11 modules · ~110 features  \n"
+            f"1. XGBoost · {len(DEFAULT_FEATURE_MODULES)} feature modules (~109 features after pruning)  \n"
             "2. Temperature Scaling (Guo 2017)  \n"
-            "3. Bayesian Hierarchical Poisson MAP  \n"
-            "4. Context-Adaptive Ensemble  \n"
-            "5. WC 2026 post-processing  "
+            "3. Bayesian Hierarchical Poisson MAP (Dixon-Coles ρ)  \n"
+            "4. Context-Adaptive Ensemble (per-match α)  \n"
+            "5. WC 2026 post-processing (venue · quality · absence · market)  \n"
+            + (f"› Kalman EKF observes a calibrated goals/xG blend "
+               f"({1-_blend:.0%} xG + {_blend:.0%} goals · StatsBomb + football-data)"
+               if _xg_on else
+               "› Kalman EKF observes goals (xG observation off)")
         )
 
 
@@ -604,6 +619,50 @@ def _get_mc_counts(n_sims: int):
     return cum_counts
 
 
+@st.cache_data(show_spinner=False)
+def _get_model_vs_market():
+    """Per-match model's-eye (pre-1X2-blend) vs market vs final-blended probs,
+    plus advancement-to-R32 under each prob set.
+
+    The market is backed out of the linear blend that produced the final probs:
+        final = (1-w)·model + w·market   (w = _MARKET_1X2_BLEND = 0.70)
+        ⇒ market = (final − (1-w)·model) / w     (only where the fixture has odds)
+    A fixture "has odds" iff the blend actually moved its probabilities.
+    Returns (rows, adv_blended, adv_model). Honest framing lives in the UI:
+    a model that diverges from the market is usually overconfident, not right
+    (the market beat the full stack head-to-head — see W17 / ARCHITECTURE_REVIEW).
+    """
+    from generate_submission import estimate_advance_probs
+    match_data, _ = _get_match_data()
+    W = 0.70
+    rows, blended_md, model_md = [], [], []
+    for m in match_data:
+        ph, pd_, pa = m["p_home"], m["p_draw"], m["p_away"]
+        mh = m.get("p_home_preblend", ph)
+        md_ = m.get("p_draw_preblend", pd_)
+        ma = m.get("p_away_preblend", pa)
+        has_mkt = (abs(ph - mh) > 1e-4) or (abs(pa - ma) > 1e-4)
+        if has_mkt:
+            kh = (ph - (1 - W) * mh) / W
+            kd = (pd_ - (1 - W) * md_) / W
+            ka = (pa - (1 - W) * ma) / W
+            s = max(kh + kd + ka, 1e-9)
+            kh, kd, ka = kh / s, kd / s, ka / s
+        else:
+            kh, kd, ka = mh, md_, ma
+        rows.append({
+            "group": m.get("group", ""), "home": m["home_team"], "away": m["away_team"],
+            "played": bool(m.get("played", False)), "has_market": has_mkt,
+            "tv": 0.5 * (abs(mh - kh) + abs(md_ - kd) + abs(ma - ka)),
+            "mdl": (mh, md_, ma), "mkt": (kh, kd, ka), "final": (ph, pd_, pa),
+        })
+        blended_md.append(dict(m))
+        model_md.append(dict(m, p_home=mh, p_draw=md_, p_away=ma))
+    adv_blended = estimate_advance_probs(blended_md, n_sims=20000)
+    adv_model = estimate_advance_probs(model_md, n_sims=20000)
+    return rows, adv_blended, adv_model
+
+
 @st.cache_data
 def _load_submission() -> dict[tuple[str, str], tuple[int, int]]:
     """Load optimised predicted scorelines from output.csv."""
@@ -632,14 +691,14 @@ if "running" not in st.session_state:
 if not st.session_state.predictions_ready:
     if not st.session_state.running:
         # ── Landing screen ─────────────────────────────────────────────────────
-        st.markdown("""
+        st.markdown(f"""
         <div style="max-width:520px;margin:60px auto;text-align:center">
           <div style="font-size:3rem;margin-bottom:12px">⚽</div>
           <h2 style="margin-bottom:8px">Ready to predict</h2>
           <p style="color:rgba(255,255,255,0.5);margin-bottom:28px">
-            Trains XGBoost + Bayesian Poisson + Ensemble on 15 years of international football,
-            then simulates 10,000 tournament runs.<br><br>
-            <strong style="color:rgba(255,255,255,0.7)">~2 minutes on first load,
+            Trains XGBoost + Bayesian Poisson + Ensemble on international football since 2010,
+            then simulates {n_sims:,} tournament runs.<br><br>
+            <strong style="color:rgba(255,255,255,0.7)">~1–2 minutes on first load,
             instant on subsequent visits.</strong>
           </p>
         </div>
@@ -754,11 +813,19 @@ summary_df = (
 )
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_overview, tab_groups, tab_predictor, tab_bracket, tab_teams, \
-tab_model, tab_data, tab_backtest, tab_submission = st.tabs([
-    "🏆 Overview", "🗂 Groups", "⚡ Match", "🏅 Bracket", "🌍 Teams",
-    "🤖 Model", "📊 Data", "📈 Backtest", "📋 Submission",
+tab_overview, tab_bracket, tab_groups, tab_matchlab, tab_modelmarket, \
+tab_submission, tab_diag = st.tabs([
+    "🏆 Overview", "🏟 Bracket", "🗂 Groups", "⚔️ Match Lab",
+    "🎲 Model vs Market", "📋 Submission", "🔬 Diagnostics",
 ])
+
+# Consolidated sub-tabs. Created inside their parent tabs so the existing
+# content blocks further down render into them with NO re-indentation —
+# Streamlit nests a tab by where it is created, not where its `with` is used.
+with tab_matchlab:
+    sub_predict, sub_teams = st.tabs(["⚡ Predict a match", "🌍 Compare teams"])
+with tab_diag:
+    sub_model, sub_data, sub_backtest = st.tabs(["🤖 Model internals", "📊 Data coverage", "📈 Backtest"])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -961,7 +1028,7 @@ with tab_groups:
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — MATCH PREDICTOR
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_predictor:
+with sub_predict:
     st.subheader("Match Predictor")
     st.caption("Pick any two WC 2026 teams for a detailed prediction.")
 
@@ -1133,7 +1200,40 @@ with tab_predictor:
 # TAB 4 — BRACKET
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_bracket:
-    st.subheader("Tournament Bracket — Advancement Probabilities")
+    st.subheader("Predicted Knockout Bracket")
+    st.caption(
+        "Most-likely path: group finishers ranked by **expected points** (played matches "
+        "locked to actual results), filled into the official FIFA 2026 R32 slots, then every "
+        "tie resolved to the higher knockout win probability. Neutral venues; the **Final sits "
+        "in the centre** with the two halves fanning out to the R32 at the edges. "
+        "The % above each tie is the favourite's chance of advancing."
+    )
+
+    try:
+        _bk = _bracket.build_expected_bracket(match_data, pair_probs)
+        _champ = _bk["champion"]
+        _title_odds = mc_counts.get(_champ, {}).get("winner", 0.0)
+        st.markdown(
+            f"### 🏆 Predicted champion: {flag(_champ)}　"
+            f"<span style='color:#71717a;font-size:0.8rem;'>"
+            f"{_bk['champion_p']:.0%} to win this projected final · "
+            f"{_title_odds:.0%} to lift the trophy across all {n_sims:,} simulated paths</span>",
+            unsafe_allow_html=True,
+        )
+        _fig_bracket = _bracket.bracket_figure(_bk, flags=_FLAGS)
+        _pc(_fig_bracket, use_container_width=True)
+        st.caption(
+            "This is one single most-likely route. A team can reach the final on many other "
+            "paths — the heatmap below gives each team's full advancement probability across "
+            "all simulations, which is the more complete picture."
+        )
+    except Exception as _bexc:
+        st.warning(f"Bracket view unavailable: {_bexc}")
+
+    st.divider()
+
+    # ── Advancement probabilities (Monte Carlo) ───────────────────────────────
+    st.markdown("**Advancement probabilities — every team × round**")
     st.caption(f"{n_sims:,} Monte Carlo simulations")
 
     # Heatmap: teams × rounds
@@ -1167,13 +1267,7 @@ with tab_bracket:
         yaxis=dict(autorange="reversed", tickfont=dict(size=11)),
     )
     _pc(fig_heat, use_container_width=True)
-
-    # Narrow table view
-    with st.expander("Table view", expanded=True):
-        table_df = summary_df[["Team", "Group", "R32", "R16", "QF", "SF", "Final", "Winner"]].copy()
-        for col in ["R32", "R16", "QF", "SF", "Final", "Winner"]:
-            table_df[col] = table_df[col].map(lambda x: f"{x:.1%}")
-        st.dataframe(table_df, use_container_width=True, hide_index=True)
+    st.caption("The same numbers as a sortable table are in the Overview tab.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1186,25 +1280,29 @@ def _load_injuries() -> dict:
     return json.loads(path.read_text()) if path.exists() else {}
 
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def _load_xg_coverage() -> dict[str, int]:
     """Per-team count of historical matches that carry xG.
 
-    xG never lives as columns on the training frame — it sits inside the
-    xg_form module's per-team timelines (football-data.co.uk + FBref). The Data
-    tab previously looked for xg_home/xg_away on all_data (always absent) and so
-    rendered empty. Read the real source and key by normalised team name.
+    Counts the xG actually attached to training rows (data/xg_attach) — the same
+    calibrated goals/xG the Kalman observes. Sources: StatsBomb open-data (AFCON
+    2023, Copa 2024, WC 2018/2022, Euro 2020/2024) merged with football-data.co.uk
+    qualifier xG (StatsBomb wins on overlap). This is what closed the historical
+    CAF/CONCACAF gap; previously this read only the older xg_form timelines and
+    understated coverage.
     """
     try:
-        from football_predictor.features.xg_form import XGFormFeatures
-        mod = XGFormFeatures()
-        mod._ensure()
-        timelines = mod._timelines or {}
+        from football_predictor.data.xg_attach import attach_calibrated_xg
+        from football_predictor.data.sources.international_results import fetch_training_data
+        d = attach_calibrated_xg(fetch_training_data(from_year=2010))
+        d = d[d["home_xg"].notna() & d["away_xg"].notna()]
     except Exception:
         return {}
     counts: dict[str, int] = {}
-    for team, tl in timelines.items():
-        counts[normalise(str(team))] = counts.get(normalise(str(team)), 0) + len(tl)
+    for r in d.itertuples():
+        for team in (r.home_team, r.away_team):
+            n = normalise(str(team))
+            counts[n] = counts.get(n, 0) + 1
     return counts
 
 
@@ -1251,10 +1349,101 @@ def _fc26_key(team: str) -> str:
     return _WC_TO_FC26.get(team, team)
 
 
+# Canonical WC name → API-Football cache key (data/api_form_cache.json uses
+# different spellings). Without this, recent-form was blank for these 6 teams.
+_WC_TO_APIFORM: dict[str, str] = {
+    "Czechia": "Czech Republic",
+    "Bosnia and Herzegovina": "Bosnia & Herzegovina",
+    "United States": "USA",
+    "IR Iran": "Iran",
+    "Cabo Verde": "Cape Verde Islands",
+    "DR Congo": "Congo DR",
+}
+
+
+def _api_form_for(team: str, api_form_raw: dict) -> dict:
+    """API-Football form for a team, tolerant of name-spelling differences."""
+    return (api_form_raw.get(team)
+            or api_form_raw.get(_WC_TO_APIFORM.get(team, team))
+            or api_form_raw.get(normalise(team))
+            or {})
+
+
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — TEAMS
+# TAB — MODEL vs MARKET  (the un-blended "model's-eye" view)
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_teams:
+with tab_modelmarket:
+    st.subheader("🎲 Model vs Market")
+    st.caption(
+        "Final probabilities = **0.30 · model + 0.70 · market** — the market beats the "
+        "model head-to-head, so it anchors the number (W17). This tab strips the blend "
+        "back out to show the model's **own** view and where it **disagrees** with the "
+        "bookmakers. Honest read: a divergence is usually the model being *overconfident*, "
+        "not the market being wrong — a what-my-model-believes lens, **not** hidden alpha."
+    )
+
+    mvm_rows, _adv_blended, _adv_model = _get_model_vs_market()
+    _covered = sorted(
+        [r for r in mvm_rows if r["has_market"] and not r["played"]],
+        key=lambda r: -r["tv"],
+    )
+
+    mc1, mc2, mc3 = st.columns(3)
+    mc1.metric("Fixtures priced by market", sum(1 for r in mvm_rows if r["has_market"]))
+    if _covered:
+        mc2.metric("Biggest disagreement",
+                   f"{_covered[0]['home']} v {_covered[0]['away']}",
+                   delta=f"TV {_covered[0]['tv']:.2f}")
+        mc3.metric("Avg model↔market gap", f"{np.mean([r['tv'] for r in _covered]):.3f}")
+
+    st.divider()
+    _left, _right = st.columns([3, 2])
+
+    with _left:
+        st.markdown("**Where the model disagrees most with the market**  ·  unplayed fixtures")
+        _tbl = []
+        for r in _covered[:14]:
+            mh, md_, ma = r["mdl"]; kh, kd, ka = r["mkt"]
+            _lean = r["home"] if (mh - kh) >= (ma - ka) else r["away"]
+            _tbl.append({
+                "Match": f"{r['home']} v {r['away']}",
+                "Model H/D/A": f"{mh:.2f} / {md_:.2f} / {ma:.2f}",
+                "Market H/D/A": f"{kh:.2f} / {kd:.2f} / {ka:.2f}",
+                "Gap": round(r["tv"], 2),
+                "Model backs": _lean,
+            })
+        st.dataframe(pd.DataFrame(_tbl), hide_index=True, use_container_width=True)
+
+    with _right:
+        st.markdown("**Advancement if the market anchor is removed**")
+        st.caption("P(reach R32): model's-eye − blended. Positive = the model is more "
+                   "bullish than the bookmakers (usually its bias, not a sure thing).")
+        _diffs = sorted(
+            [(_adv_model.get(t, 0) - _adv_blended.get(t, 0), t,
+              _adv_blended.get(t, 0), _adv_model.get(t, 0)) for t in _adv_blended],
+            reverse=True,
+        )
+        _movers = _diffs[:6] + _diffs[-4:]
+        st.dataframe(
+            pd.DataFrame([
+                {"Team": t, "Blended": f"{b:.0%}", "Model's-eye": f"{m:.0%}", "Δ": f"{d:+.0%}"}
+                for d, t, b, m in _movers
+            ]),
+            hide_index=True, use_container_width=True,
+        )
+
+    st.info(
+        "📌 Teams that surge when the blend is removed (often AFC sides like Japan / "
+        "South Korea) are where Elo/Glicko **inflate** from insular regional competition — "
+        "the market corrects it. Fixing that inflation in the raw model is the real win "
+        "(see `ARCHITECTURE_REVIEW.md`)."
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — TEAMS  (Match Lab → Compare teams)
+# ══════════════════════════════════════════════════════════════════════════════
+with sub_teams:
     injuries_raw  = _load_injuries()
     transfermarkt = _load_transfermarkt()
     fc26_data     = _load_fc26()
@@ -1273,7 +1462,7 @@ with tab_teams:
         return transfermarkt.get(key or team)
 
     def _team_form_rows(team: str) -> list[dict]:
-        entry = api_form_raw.get(team, {})
+        entry = _api_form_for(team, api_form_raw)
         rows = []
         for fix in sorted(entry.get("fixtures", []),
                           key=lambda f: f["fixture"]["date"], reverse=True)[:10]:
@@ -1399,14 +1588,14 @@ with tab_teams:
         f"{mc_a.get('winner', 0):.1%}",
         f"{mc_a.get('final', 0):.1%}",
         f"{fc_a.get('fc26_overall', 0):.0f}" if fc_a else "N/A",
-        f"€{sv_a}M" if sv_a else "N/A",
+        f"€{sv_a:.0f}M" if sv_a else "N/A",
     ]
     stat_b = [
         grp_b,
         f"{mc_b.get('winner', 0):.1%}",
         f"{mc_b.get('final', 0):.1%}",
         f"{fc_b.get('fc26_overall', 0):.0f}" if fc_b else "N/A",
-        f"€{sv_b}M" if sv_b else "N/A",
+        f"€{sv_b:.0f}M" if sv_b else "N/A",
     ]
 
     # Stat comparison as styled HTML table
@@ -1559,7 +1748,7 @@ with tab_teams:
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 6 — MODEL
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_model:
+with sub_model:
     st.subheader("Model Internals")
 
     xgb_m, temp_m, bp_m, ens_m, _, train_df_m = _load_models()
@@ -1645,6 +1834,10 @@ with tab_model:
                     "Winner %": mc_counts.get(team, {}).get("winner", 0),
                 })
             bp_df = pd.DataFrame(bp_rows)
+            # Label only the 14 strongest teams — labelling all 48 collides into
+            # an unreadable mass. The rest are still hoverable.
+            _top = set(bp_df.nlargest(14, "Winner %")["Team"])
+            bp_df["Label"] = bp_df["Team"].map(lambda t: t if t in _top else "")
 
             fig_bp = px.scatter(
                 bp_df,
@@ -1652,7 +1845,8 @@ with tab_model:
                 color="Group",
                 size="Winner %",
                 size_max=30,
-                text="Team",
+                text="Label",
+                hover_name="Team",
                 color_discrete_sequence=_GROUP_PALETTE,
                 title="Attack = more goals scored  ·  Defence = fewer conceded (lower = better)",
             )
@@ -1722,7 +1916,7 @@ with tab_model:
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 7 — DATA
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_data:
+with sub_data:
     st.subheader("Data Quality & Coverage")
 
     _, all_data_d = _get_match_data()
@@ -1783,7 +1977,7 @@ with tab_data:
             comp_df  = team_df[team_df["tournament"].str.lower().str.contains(
                 "qualif|world cup|copa|euro|nations|africa|asian|gold cup", na=False)]
             has_inj  = bool(injuries_raw.get(team))
-            has_form = bool(api_form_raw.get(team, {}).get("fixtures"))
+            has_form = bool(_api_form_for(team, api_form_raw).get("fixtures"))
             cov_rows.append({
                 "Team": flag(team),
                 "All matches": len(team_df),
@@ -1815,15 +2009,20 @@ with tab_data:
 
     xg_df = pd.DataFrame(xg_rows).sort_values(["Group", "xG matches"], ascending=[True, False])
     _n_with = int((xg_df["xG matches"] > 0).sum())
+    _n_gap = [t for t in ALL_TEAMS if int(_xg_cov.get(normalise(t), 0)) == 0]
     st.caption(
-        f"{_n_with}/{len(xg_df)} WC 2026 teams have xG history. Gaps are the known "
-        "data limitation — football-data.co.uk covers UEFA/AFC/CONMEBOL qualifiers; "
-        "FBref fills some CAF/CONCACAF; the rest (no free xG source) run on form/Elo/Kalman."
+        f"{_n_with}/{len(xg_df)} WC 2026 teams now have xG history. StatsBomb open-data "
+        "(AFCON 2023, Copa 2024, WC 2018/2022, Euro 2020/2024) closed the old "
+        "CAF/CONCACAF gap — all CAF teams are covered, plus the CONCACAF guests "
+        "(Mexico/USA/Canada). It feeds the Kalman as a calibrated goals/xG blend. "
+        + (f"Remaining without historical xG: {', '.join(_n_gap)} — these fall back to "
+           "goals and can pick up xG live from FIFA shot coordinates during the tournament."
+           if _n_gap else "")
     )
     fig_xg = px.bar(
         xg_df, x="Team", y="xG matches", color="Group",
         color_discrete_sequence=_GROUP_PALETTE,
-        title="xG-covered matches per team (qualifier history)",
+        title="xG-covered matches per team (StatsBomb + qualifier history)",
     )
     fig_xg.update_layout(
         height=380,
@@ -1849,7 +2048,7 @@ with tab_data:
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 8 — BACKTEST / CALIBRATION
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_backtest:
+with sub_backtest:
     st.subheader("Backtest — Historical World Cup Evaluation")
     st.caption("Trained on pre-tournament data, evaluated on group stage (out-of-sample).")
 
@@ -1883,10 +2082,18 @@ with tab_backtest:
         row = {"Metric": label}
         for y in years:
             v = metrics_by_year[y].get(key)
-            row[str(y)] = f"{v:.4f}" if isinstance(v, float) else (str(v) if v else "—")
+            if isinstance(v, float):
+                row[str(y)] = f"{int(v)}" if key == "n_matches" else f"{v:.4f}"
+            else:
+                row[str(y)] = str(v) if v else "—"
         m_rows.append(row)
 
     st.markdown("**Key metrics across tournaments**")
+    st.caption(
+        "Numbers are read from the last saved `backtest.py` run (output/backtest_*_metrics.txt). "
+        "With xG observation on, regenerate with `python3.11 scripts/backtest.py --years 2014 2018 2022`; "
+        "compare xG-on vs off with `--ablation`."
+    )
     m_df = pd.DataFrame(m_rows)
 
     def _highlight_better(row):
@@ -1897,6 +2104,11 @@ with tab_backtest:
             except (ValueError, KeyError):
                 vals.append(None)
         styles = [""] * len(row)
+        # Only rank rows where "best across years" is meaningful — not
+        # temperature, ensemble α, match counts, or the uniform baselines.
+        _ml = row["Metric"].lower()
+        if "uniform" in _ml or not any(k in _ml for k in ["log-loss", "brier", "accuracy", "ece"]):
+            return styles
         valid = [v for v in vals if v is not None]
         if not valid:
             return styles
@@ -2128,13 +2340,20 @@ with tab_submission:
                    + (f"  ·  ⚠️ {_filt['upset'].sum()} upset submissions" if _filt["upset"].any() else ""))
 
         # ── Sub-tabs ──────────────────────────────────────────────────────────
+        st.caption(
+            "Two different scorelines per match: **Submitted** = the points-maximising "
+            "tip (`output.csv`, e.g. 1-0 even for big favourites — that's EV-optimal under "
+            "the scoring rules); **Most-likely** = the model's single modal scoreline "
+            "(`output_raw.csv`). They differ because the optimiser plays the points game, "
+            "not the calibration game."
+        )
         sub_scores, sub_raw_tab, sub_compare = st.tabs([
-            "🏆 Optimised", "📊 Raw probabilities", "⚖️ Compare",
+            "🏆 Submitted scorelines", "🎯 Most-likely scores", "✅ Scored vs actual",
         ])
 
-        # ── Optimised scorelines ───────────────────────────────────────────────
+        # ── Submitted (EV-optimised) scorelines ────────────────────────────────
         with sub_scores:
-            st.caption("From `output.csv` — scoreline optimizer. Use **Regenerate** above to refresh.")
+            st.caption("From `output.csv` — the points-maximising scoreline optimizer. Use **Regenerate** above to refresh.")
             if _sort == "Group order":
                 _gcols = st.columns(3)
                 for _gi, _grp in enumerate(sorted(_filt["group"].unique())):
@@ -2243,11 +2462,11 @@ with tab_submission:
         # ── Compare optimised vs model prediction vs actual ────────────────────
         with sub_compare:
             st.caption(
-                "**Optimised** (`output.csv`, points-maximising pick) vs **Model predicted** "
-                "(genuine most-likely score from λ) vs **Actual**. For played matches the model "
-                "prediction is the real forecast — *not* the recorded result — so you can see how "
-                "the model did. Amber = optimiser differs from the model; ✅/❌ = prediction hit the "
-                "actual outcome."
+                "**Submitted** (`output.csv`, points-maximising pick) vs **Most-likely** "
+                "(the model's genuine modal score from λ) vs **Actual**. For played matches the "
+                "*Most-likely* column is the real pre-match forecast — **not** the recorded result — "
+                "so you can grade the model. Amber `≠` = submitted differs from the model's call; "
+                "✅/❌ = the model's call hit the actual outcome (✅ exact = nailed the score)."
             )
             if _sub_raw is None:
                 st.info("No raw output file — run Refresh predictions to generate it.")
@@ -2262,7 +2481,7 @@ with tab_submission:
                     _crow = {
                         "Grp": _r["group"], "Home": flag(_r["h_sched"]),
                         "Away": flag(_r["a_sched"]),
-                        "Optimised": _opt_s, "Model predicted": _pred_s,
+                        "Submitted": _opt_s, "Most-likely": _pred_s,
                         "Δ": "—" if _opt_s == _pred_s else "≠",
                     }
                     if _any_played:
