@@ -1,28 +1,28 @@
 match_id,group,team1,team2,score1,score2
-1,A,Mexico,South Africa,2,0
+1,A,Mexico,South Africa,1,0
 2,A,Mexico,South Korea,1,0
 3,A,Mexico,Czechia,1,0
 4,A,South Africa,South Korea,0,1
 5,A,South Africa,Czechia,0,1
-6,A,South Korea,Czechia,2,1
-7,B,Canada,Bosnia and Herzegovina,1,1
+6,A,South Korea,Czechia,1,0
+7,B,Canada,Bosnia and Herzegovina,1,0
 8,B,Canada,Qatar,1,0
 9,B,Canada,Switzerland,0,1
 10,B,Bosnia and Herzegovina,Qatar,1,0
 11,B,Bosnia and Herzegovina,Switzerland,0,1
-12,B,Qatar,Switzerland,1,1
-13,C,Brazil,Morocco,1,1
+12,B,Qatar,Switzerland,0,1
+13,C,Brazil,Morocco,1,0
 14,C,Brazil,Haiti,1,0
 15,C,Brazil,Scotland,1,0
 16,C,Morocco,Haiti,1,0
 17,C,Morocco,Scotland,1,0
 18,C,Haiti,Scotland,0,1
-19,D,United States,Paraguay,4,1
+19,D,United States,Paraguay,1,0
 20,D,United States,Australia,1,0
 21,D,United States,Turkiye,1,0
 22,D,Paraguay,Australia,1,0
 23,D,Paraguay,Turkiye,0,1
-24,D,Australia,Turkiye,2,0
+24,D,Australia,Turkiye,2,1
 25,E,Germany,Curacao,1,0
 26,E,Germany,Ivory Coast,1,0
 27,E,Germany,Ecuador,1,0

@@ -280,24 +280,28 @@ def optimise_group_scores(
     sim_h = np.zeros((n_sims, n), dtype=np.int32)
     sim_a = np.zeros((n_sims, n), dtype=np.int32)
     for i, m in enumerate(group_matches):
-        if m.get("played"):
-            sim_h[:, i] = int(m["actual_home_goals"])
-            sim_a[:, i] = int(m["actual_away_goals"])
-        else:
-            sim_h[:, i], sim_a[:, i] = _simulate_match(
-                m["bp_lam_home"], m["bp_lam_away"],
-                m["p_home"], m["p_draw"], m["p_away"],
-                n_sims, rng,
-                m.get("kalman_lam_h_log_std", 0.0),
-                m.get("kalman_lam_a_log_std", 0.0),
-            )
+        # Played matches are optimised from the RETRAINED model, not pinned to
+        # their actual score: output.csv should show what the model now predicts
+        # (the genuine optimised pick), with the real result displayed separately.
+        # Use pred_p_* (genuine pre-lock probabilities) because
+        # merge_actual_results freezes p_* to the known 1/0/0 outcome for played
+        # fixtures; bp_lam_* are left untouched and stay genuine.
+        sim_h[:, i], sim_a[:, i] = _simulate_match(
+            m["bp_lam_home"], m["bp_lam_away"],
+            m.get("pred_p_home", m["p_home"]),
+            m.get("pred_p_draw", m["p_draw"]),
+            m.get("pred_p_away", m["p_away"]),
+            n_sims, rng,
+            m.get("kalman_lam_h_log_std", 0.0),
+            m.get("kalman_lam_a_log_std", 0.0),
+        )
 
     candidates: list[list[tuple[int, int]]] = []
     for m in group_matches:
-        if m.get("played"):
-            candidates.append([(int(m["actual_home_goals"]), int(m["actual_away_goals"]))])
-        else:
-            candidates.append(_top_k_candidates(m["bp_lam_home"], m["bp_lam_away"], k=k))
+        # No special-case for played matches — optimise their scoreline from the
+        # retrained model like any other fixture (see local sim above), so
+        # output.csv reflects the model, not the known result.
+        candidates.append(_top_k_candidates(m["bp_lam_home"], m["bp_lam_away"], k=k))
 
     k_per_match = [len(c) for c in candidates]
 
