@@ -5,24 +5,24 @@ match_id,group,team1,team2,score1,score2
 4,A,South Africa,South Korea,0,1
 5,A,South Africa,Czechia,0,1
 6,A,South Korea,Czechia,2,1
-7,B,Canada,Bosnia and Herzegovina,1,0
+7,B,Canada,Bosnia and Herzegovina,1,1
 8,B,Canada,Qatar,1,0
 9,B,Canada,Switzerland,0,1
 10,B,Bosnia and Herzegovina,Qatar,1,0
 11,B,Bosnia and Herzegovina,Switzerland,0,1
-12,B,Qatar,Switzerland,0,1
-13,C,Brazil,Morocco,1,0
+12,B,Qatar,Switzerland,1,1
+13,C,Brazil,Morocco,1,1
 14,C,Brazil,Haiti,1,0
 15,C,Brazil,Scotland,1,0
 16,C,Morocco,Haiti,1,0
 17,C,Morocco,Scotland,1,0
 18,C,Haiti,Scotland,0,1
-19,D,United States,Paraguay,1,0
+19,D,United States,Paraguay,4,1
 20,D,United States,Australia,1,0
 21,D,United States,Turkiye,1,0
-22,D,Paraguay,Australia,0,1
+22,D,Paraguay,Australia,1,0
 23,D,Paraguay,Turkiye,0,1
-24,D,Australia,Turkiye,1,0
+24,D,Australia,Turkiye,2,0
 25,E,Germany,Curacao,1,0
 26,E,Germany,Ivory Coast,1,0
 27,E,Germany,Ecuador,1,0
@@ -38,30 +38,30 @@ match_id,group,team1,team2,score1,score2
 37,G,Belgium,Egypt,1,0
 38,G,Belgium,Iran,1,0
 39,G,Belgium,New Zealand,1,0
-40,G,Egypt,Iran,0,1
+40,G,Egypt,Iran,1,0
 41,G,Egypt,New Zealand,1,0
 42,G,Iran,New Zealand,1,0
 43,H,Spain,Cape Verde,1,0
 44,H,Spain,Saudi Arabia,1,0
 45,H,Spain,Uruguay,1,0
-46,H,Cape Verde,Saudi Arabia,0,1
+46,H,Cape Verde,Saudi Arabia,1,0
 47,H,Cape Verde,Uruguay,0,1
 48,H,Saudi Arabia,Uruguay,0,1
 49,I,France,Senegal,1,0
 50,I,France,Iraq,1,0
 51,I,France,Norway,1,0
 52,I,Senegal,Iraq,1,0
-53,I,Senegal,Norway,1,0
+53,I,Senegal,Norway,0,1
 54,I,Iraq,Norway,0,1
 55,J,Argentina,Algeria,1,0
 56,J,Argentina,Austria,1,0
 57,J,Argentina,Jordan,1,0
-58,J,Algeria,Austria,1,0
+58,J,Algeria,Austria,0,1
 59,J,Algeria,Jordan,1,0
 60,J,Austria,Jordan,1,0
 61,K,Portugal,DR Congo,1,0
 62,K,Portugal,Uzbekistan,1,0
-63,K,Portugal,Colombia,0,1
+63,K,Portugal,Colombia,1,0
 64,K,DR Congo,Uzbekistan,1,0
 65,K,DR Congo,Colombia,0,1
 66,K,Uzbekistan,Colombia,0,1
@@ -70,4 +70,4 @@ match_id,group,team1,team2,score1,score2
 69,L,England,Panama,1,0
 70,L,Croatia,Ghana,1,0
 71,L,Croatia,Panama,1,0
-72,L,Ghana,Panama,0,1
+72,L,Ghana,Panama,1,0

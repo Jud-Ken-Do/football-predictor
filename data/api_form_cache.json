@@ -1,7 +1,7 @@
 {
   "Algeria": {
     "team_id": 1532,
-    "fetched_at": "2026-06-12T09:24:39Z",
+    "fetched_at": "2026-06-13T03:24:46Z",
     "fixtures": [
       {
         "fixture": {
@@ -1407,7 +1407,7 @@
   },
   "Argentina": {
     "team_id": 26,
-    "fetched_at": "2026-06-12T09:24:40Z",
+    "fetched_at": "2026-06-13T03:24:46Z",
     "fixtures": [
       {
         "fixture": {
@@ -2813,7 +2813,7 @@
   },
   "Australia": {
     "team_id": 20,
-    "fetched_at": "2026-06-12T09:24:40Z",
+    "fetched_at": "2026-06-13T03:24:47Z",
     "fixtures": [
       {
         "fixture": {
@@ -4219,7 +4219,7 @@
   },
   "Austria": {
     "team_id": 775,
-    "fetched_at": "2026-06-12T09:24:41Z",
+    "fetched_at": "2026-06-13T03:24:48Z",
     "fixtures": [
       {
         "fixture": {
@@ -5625,7 +5625,7 @@
   },
   "Belgium": {
     "team_id": 1,
-    "fetched_at": "2026-06-12T09:24:41Z",
+    "fetched_at": "2026-06-13T03:24:48Z",
     "fixtures": [
       {
         "fixture": {
@@ -7031,8 +7031,78 @@
   },
   "Bosnia & Herzegovina": {
     "team_id": 1113,
-    "fetched_at": "2026-06-12T09:24:42Z",
+    "fetched_at": "2026-06-13T03:24:49Z",
     "fixtures": [
+      {
+        "fixture": {
+          "id": 1539000,
+          "referee": "Facundo Raul Tello Figueroa, Argentina",
+          "timezone": "UTC",
+          "date": "2026-06-12T19:00:00+00:00",
+          "timestamp": 1781290800,
+          "periods": {
+            "first": 1781290800,
+            "second": 1781294400
+          },
+          "venue": {
+            "id": 312,
+            "name": "BMO Field",
+            "city": "Toronto"
+          },
+          "status": {
+            "long": "Match Finished",
+            "short": "FT",
+            "elapsed": 90,
+            "extra": 6
+          }
+        },
+        "league": {
+          "id": 1,
+          "name": "World Cup",
+          "country": "World",
+          "logo": "https://media.api-sports.io/football/leagues/1.png",
+          "flag": null,
+          "season": 2026,
+          "round": "Group Stage - 1",
+          "standings": true
+        },
+        "teams": {
+          "home": {
+            "id": 5529,
+            "name": "Canada",
+            "logo": "https://media.api-sports.io/football/teams/5529.png",
+            "winner": null
+          },
+          "away": {
+            "id": 1113,
+            "name": "Bosnia & Herzegovina",
+            "logo": "https://media.api-sports.io/football/teams/1113.png",
+            "winner": null
+          }
+        },
+        "goals": {
+          "home": 1,
+          "away": 1
+        },
+        "score": {
+          "halftime": {
+            "home": 0,
+            "away": 1
+          },
+          "fulltime": {
+            "home": 1,
+            "away": 1
+          },
+          "extratime": {
+            "home": null,
+            "away": null
+          },
+          "penalty": {
+            "home": null,
+            "away": null
+          }
+        }
+      },
       {
         "fixture": {
           "id": 1544360,
@@ -8362,82 +8432,12 @@
             "away": null
           }
         }
-      },
-      {
-        "fixture": {
-          "id": 1172946,
-          "referee": "Donatas Rumsas, Lithuania",
-          "timezone": "UTC",
-          "date": "2024-09-07T18:45:00+00:00",
-          "timestamp": 1725734700,
-          "periods": {
-            "first": 1725734700,
-            "second": 1725738300
-          },
-          "venue": {
-            "id": 1143,
-            "name": "Philips Stadion",
-            "city": "Eindhoven"
-          },
-          "status": {
-            "long": "Match Finished",
-            "short": "FT",
-            "elapsed": 90,
-            "extra": null
-          }
-        },
-        "league": {
-          "id": 5,
-          "name": "UEFA Nations League",
-          "country": "World",
-          "logo": "https://media.api-sports.io/football/leagues/5.png",
-          "flag": null,
-          "season": 2024,
-          "round": "League A - 1",
-          "standings": true
-        },
-        "teams": {
-          "home": {
-            "id": 1118,
-            "name": "Netherlands",
-            "logo": "https://media.api-sports.io/football/teams/1118.png",
-            "winner": true
-          },
-          "away": {
-            "id": 1113,
-            "name": "Bosnia & Herzegovina",
-            "logo": "https://media.api-sports.io/football/teams/1113.png",
-            "winner": false
-          }
-        },
-        "goals": {
-          "home": 5,
-          "away": 2
-        },
-        "score": {
-          "halftime": {
-            "home": 2,
-            "away": 1
-          },
-          "fulltime": {
-            "home": 5,
-            "away": 2
-          },
-          "extratime": {
-            "home": null,
-            "away": null
-          },
-          "penalty": {
-            "home": null,
-            "away": null
-          }
-        }
       }
     ]
   },
   "Brazil": {
     "team_id": 6,
-    "fetched_at": "2026-06-12T09:24:43Z",
+    "fetched_at": "2026-06-13T03:24:49Z",
     "fixtures": [
       {
         "fixture": {
@@ -9843,8 +9843,78 @@
   },
   "Canada": {
     "team_id": 5529,
-    "fetched_at": "2026-06-12T09:24:43Z",
+    "fetched_at": "2026-06-13T03:24:50Z",
     "fixtures": [
+      {
+        "fixture": {
+          "id": 1539000,
+          "referee": "Facundo Raul Tello Figueroa, Argentina",
+          "timezone": "UTC",
+          "date": "2026-06-12T19:00:00+00:00",
+          "timestamp": 1781290800,
+          "periods": {
+            "first": 1781290800,
+            "second": 1781294400
+          },
+          "venue": {
+            "id": 312,
+            "name": "BMO Field",
+            "city": "Toronto"
+          },
+          "status": {
+            "long": "Match Finished",
+            "short": "FT",
+            "elapsed": 90,
+            "extra": 6
+          }
+        },
+        "league": {
+          "id": 1,
+          "name": "World Cup",
+          "country": "World",
+          "logo": "https://media.api-sports.io/football/leagues/1.png",
+          "flag": null,
+          "season": 2026,
+          "round": "Group Stage - 1",
+          "standings": true
+        },
+        "teams": {
+          "home": {
+            "id": 5529,
+            "name": "Canada",
+            "logo": "https://media.api-sports.io/football/teams/5529.png",
+            "winner": null
+          },
+          "away": {
+            "id": 1113,
+            "name": "Bosnia & Herzegovina",
+            "logo": "https://media.api-sports.io/football/teams/1113.png",
+            "winner": null
+          }
+        },
+        "goals": {
+          "home": 1,
+          "away": 1
+        },
+        "score": {
+          "halftime": {
+            "home": 0,
+            "away": 1
+          },
+          "fulltime": {
+            "home": 1,
+            "away": 1
+          },
+          "extratime": {
+            "home": null,
+            "away": null
+          },
+          "penalty": {
+            "home": null,
+            "away": null
+          }
+        }
+      },
       {
         "fixture": {
           "id": 1528285,
@@ -11174,82 +11244,12 @@
             "away": null
           }
         }
-      },
-      {
-        "fixture": {
-          "id": 1312099,
-          "referee": "K. Garcia",
-          "timezone": "UTC",
-          "date": "2024-11-20T00:30:00+00:00",
-          "timestamp": 1732062600,
-          "periods": {
-            "first": 1732062600,
-            "second": 1732066200
-          },
-          "venue": {
-            "id": 312,
-            "name": "BMO Field",
-            "city": "Toronto, Ontario"
-          },
-          "status": {
-            "long": "Match Finished",
-            "short": "FT",
-            "elapsed": 90,
-            "extra": 4
-          }
-        },
-        "league": {
-          "id": 536,
-          "name": "CONCACAF Nations League",
-          "country": "World",
-          "logo": "https://media.api-sports.io/football/leagues/536.png",
-          "flag": null,
-          "season": 2024,
-          "round": "Quarter-finals",
-          "standings": false
-        },
-        "teams": {
-          "home": {
-            "id": 5529,
-            "name": "Canada",
-            "logo": "https://media.api-sports.io/football/teams/5529.png",
-            "winner": true
-          },
-          "away": {
-            "id": 8171,
-            "name": "Suriname",
-            "logo": "https://media.api-sports.io/football/teams/8171.png",
-            "winner": false
-          }
-        },
-        "goals": {
-          "home": 3,
-          "away": 0
-        },
-        "score": {
-          "halftime": {
-            "home": 2,
-            "away": 0
-          },
-          "fulltime": {
-            "home": 3,
-            "away": 0
-          },
-          "extratime": {
-            "home": null,
-            "away": null
-          },
-          "penalty": {
-            "home": null,
-            "away": null
-          }
-        }
       }
     ]
   },
   "Cape Verde Islands": {
     "team_id": 1533,
-    "fetched_at": "2026-06-12T09:24:44Z",
+    "fetched_at": "2026-06-13T03:24:51Z",
     "fixtures": [
       {
         "fixture": {
@@ -12655,7 +12655,7 @@
   },
   "Colombia": {
     "team_id": 8,
-    "fetched_at": "2026-06-12T09:24:45Z",
+    "fetched_at": "2026-06-13T03:24:51Z",
     "fixtures": [
       {
         "fixture": {
@@ -14061,7 +14061,7 @@
   },
   "Congo DR": {
     "team_id": 1508,
-    "fetched_at": "2026-06-12T09:24:45Z",
+    "fetched_at": "2026-06-13T03:24:52Z",
     "fixtures": [
       {
         "fixture": {
@@ -15467,7 +15467,7 @@
   },
   "Croatia": {
     "team_id": 3,
-    "fetched_at": "2026-06-12T09:24:46Z",
+    "fetched_at": "2026-06-13T03:24:53Z",
     "fixtures": [
       {
         "fixture": {
@@ -15995,7 +15995,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": null
           },
@@ -16211,7 +16211,7 @@
           },
           "away": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": false
           }
@@ -16873,7 +16873,7 @@
   },
   "Curaçao": {
     "team_id": 5530,
-    "fetched_at": "2026-06-12T09:24:46Z",
+    "fetched_at": "2026-06-13T03:24:53Z",
     "fixtures": [
       {
         "fixture": {
@@ -18279,7 +18279,7 @@
   },
   "Czech Republic": {
     "team_id": 770,
-    "fetched_at": "2026-06-12T09:24:47Z",
+    "fetched_at": "2026-06-13T03:24:54Z",
     "fixtures": [
       {
         "fixture": {
@@ -18323,7 +18323,7 @@
           },
           "away": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": false
           }
@@ -18387,7 +18387,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": true
           },
@@ -18457,7 +18457,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": true
           },
@@ -18527,7 +18527,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": true
           },
@@ -18597,7 +18597,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": true
           },
@@ -18667,7 +18667,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": true
           },
@@ -18737,7 +18737,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": true
           },
@@ -18813,7 +18813,7 @@
           },
           "away": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": false
           }
@@ -18877,7 +18877,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": null
           },
@@ -18947,7 +18947,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": null
           },
@@ -19023,7 +19023,7 @@
           },
           "away": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": true
           }
@@ -19093,7 +19093,7 @@
           },
           "away": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": false
           }
@@ -19157,7 +19157,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": true
           },
@@ -19233,7 +19233,7 @@
           },
           "away": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": true
           }
@@ -19297,7 +19297,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": true
           },
@@ -19367,7 +19367,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": true
           },
@@ -19443,7 +19443,7 @@
           },
           "away": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": null
           }
@@ -19513,7 +19513,7 @@
           },
           "away": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": null
           }
@@ -19577,7 +19577,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": true
           },
@@ -19647,7 +19647,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": true
           },
@@ -19685,7 +19685,7 @@
   },
   "Ecuador": {
     "team_id": 2382,
-    "fetched_at": "2026-06-12T09:24:48Z",
+    "fetched_at": "2026-06-13T03:24:54Z",
     "fixtures": [
       {
         "fixture": {
@@ -21091,7 +21091,7 @@
   },
   "Egypt": {
     "team_id": 32,
-    "fetched_at": "2026-06-12T09:24:48Z",
+    "fetched_at": "2026-06-13T03:24:55Z",
     "fixtures": [
       {
         "fixture": {
@@ -22497,7 +22497,7 @@
   },
   "England": {
     "team_id": 10,
-    "fetched_at": "2026-06-12T09:24:50Z",
+    "fetched_at": "2026-06-13T03:24:55Z",
     "fixtures": [
       {
         "fixture": {
@@ -23903,7 +23903,7 @@
   },
   "France": {
     "team_id": 2,
-    "fetched_at": "2026-06-12T09:24:51Z",
+    "fetched_at": "2026-06-13T03:24:56Z",
     "fixtures": [
       {
         "fixture": {
@@ -25309,7 +25309,7 @@
   },
   "Germany": {
     "team_id": 25,
-    "fetched_at": "2026-06-12T09:24:51Z",
+    "fetched_at": "2026-06-13T03:24:57Z",
     "fixtures": [
       {
         "fixture": {
@@ -26715,7 +26715,7 @@
   },
   "Ghana": {
     "team_id": 1504,
-    "fetched_at": "2026-06-12T09:24:52Z",
+    "fetched_at": "2026-06-13T03:24:57Z",
     "fixtures": [
       {
         "fixture": {
@@ -28121,7 +28121,7 @@
   },
   "Haiti": {
     "team_id": 2386,
-    "fetched_at": "2026-06-12T09:24:53Z",
+    "fetched_at": "2026-06-13T03:24:58Z",
     "fixtures": [
       {
         "fixture": {
@@ -29527,7 +29527,7 @@
   },
   "Iran": {
     "team_id": 22,
-    "fetched_at": "2026-06-12T09:24:53Z",
+    "fetched_at": "2026-06-13T03:24:58Z",
     "fixtures": [
       {
         "fixture": {
@@ -30933,7 +30933,7 @@
   },
   "Iraq": {
     "team_id": 1567,
-    "fetched_at": "2026-06-12T09:24:54Z",
+    "fetched_at": "2026-06-13T03:24:59Z",
     "fixtures": [
       {
         "fixture": {
@@ -32339,7 +32339,7 @@
   },
   "Ivory Coast": {
     "team_id": 1501,
-    "fetched_at": "2026-06-12T09:24:55Z",
+    "fetched_at": "2026-06-13T03:24:59Z",
     "fixtures": [
       {
         "fixture": {
@@ -33745,7 +33745,7 @@
   },
   "Japan": {
     "team_id": 12,
-    "fetched_at": "2026-06-12T09:24:56Z",
+    "fetched_at": "2026-06-13T03:25:00Z",
     "fixtures": [
       {
         "fixture": {
@@ -35151,7 +35151,7 @@
   },
   "Jordan": {
     "team_id": 1548,
-    "fetched_at": "2026-06-12T09:24:56Z",
+    "fetched_at": "2026-06-13T03:25:01Z",
     "fixtures": [
       {
         "fixture": {
@@ -36557,7 +36557,7 @@
   },
   "Mexico": {
     "team_id": 16,
-    "fetched_at": "2026-06-12T09:24:57Z",
+    "fetched_at": "2026-06-13T03:25:01Z",
     "fixtures": [
       {
         "fixture": {
@@ -37963,7 +37963,7 @@
   },
   "Morocco": {
     "team_id": 31,
-    "fetched_at": "2026-06-12T09:24:58Z",
+    "fetched_at": "2026-06-13T03:25:02Z",
     "fixtures": [
       {
         "fixture": {
@@ -39369,7 +39369,7 @@
   },
   "Netherlands": {
     "team_id": 1118,
-    "fetched_at": "2026-06-12T09:24:58Z",
+    "fetched_at": "2026-06-13T03:25:03Z",
     "fixtures": [
       {
         "fixture": {
@@ -40775,7 +40775,7 @@
   },
   "New Zealand": {
     "team_id": 4673,
-    "fetched_at": "2026-06-12T09:24:59Z",
+    "fetched_at": "2026-06-13T03:25:04Z",
     "fixtures": [
       {
         "fixture": {
@@ -42181,7 +42181,7 @@
   },
   "Norway": {
     "team_id": 1090,
-    "fetched_at": "2026-06-12T09:25:00Z",
+    "fetched_at": "2026-06-13T03:25:04Z",
     "fixtures": [
       {
         "fixture": {
@@ -43587,7 +43587,7 @@
   },
   "Panama": {
     "team_id": 11,
-    "fetched_at": "2026-06-12T09:25:00Z",
+    "fetched_at": "2026-06-13T03:25:05Z",
     "fixtures": [
       {
         "fixture": {
@@ -44993,8 +44993,78 @@
   },
   "Paraguay": {
     "team_id": 2380,
-    "fetched_at": "2026-06-12T09:25:01Z",
+    "fetched_at": "2026-06-13T03:25:05Z",
     "fixtures": [
+      {
+        "fixture": {
+          "id": 1489370,
+          "referee": "Danny Makkelie, Netherlands",
+          "timezone": "UTC",
+          "date": "2026-06-13T01:00:00+00:00",
+          "timestamp": 1781312400,
+          "periods": {
+            "first": 1781312400,
+            "second": 1781316000
+          },
+          "venue": {
+            "id": null,
+            "name": "SoFi Stadium",
+            "city": "Inglewood"
+          },
+          "status": {
+            "long": "Match Finished",
+            "short": "FT",
+            "elapsed": 90,
+            "extra": null
+          }
+        },
+        "league": {
+          "id": 1,
+          "name": "World Cup",
+          "country": "World",
+          "logo": "https://media.api-sports.io/football/leagues/1.png",
+          "flag": null,
+          "season": 2026,
+          "round": "Group Stage - 1",
+          "standings": true
+        },
+        "teams": {
+          "home": {
+            "id": 2384,
+            "name": "USA",
+            "logo": "https://media.api-sports.io/football/teams/2384.png",
+            "winner": true
+          },
+          "away": {
+            "id": 2380,
+            "name": "Paraguay",
+            "logo": "https://media.api-sports.io/football/teams/2380.png",
+            "winner": false
+          }
+        },
+        "goals": {
+          "home": 4,
+          "away": 1
+        },
+        "score": {
+          "halftime": {
+            "home": 3,
+            "away": 0
+          },
+          "fulltime": {
+            "home": 4,
+            "away": 1
+          },
+          "extratime": {
+            "home": null,
+            "away": null
+          },
+          "penalty": {
+            "home": null,
+            "away": null
+          }
+        }
+      },
       {
         "fixture": {
           "id": 1543828,
@@ -46324,82 +46394,12 @@
             "away": null
           }
         }
-      },
-      {
-        "fixture": {
-          "id": 1189125,
-          "referee": "Y. Falcón",
-          "timezone": "UTC",
-          "date": "2024-07-03T01:00:00+00:00",
-          "timestamp": 1719968400,
-          "periods": {
-            "first": 1719968400,
-            "second": 1719972000
-          },
-          "venue": {
-            "id": 11535,
-            "name": "Q2 Stadium",
-            "city": "Austin, Texas"
-          },
-          "status": {
-            "long": "Match Finished",
-            "short": "FT",
-            "elapsed": 90,
-            "extra": null
-          }
-        },
-        "league": {
-          "id": 9,
-          "name": "Copa America",
-          "country": "World",
-          "logo": "https://media.api-sports.io/football/leagues/9.png",
-          "flag": null,
-          "season": 2024,
-          "round": "Group Stage - 3",
-          "standings": true
-        },
-        "teams": {
-          "home": {
-            "id": 29,
-            "name": "Costa Rica",
-            "logo": "https://media.api-sports.io/football/teams/29.png",
-            "winner": true
-          },
-          "away": {
-            "id": 2380,
-            "name": "Paraguay",
-            "logo": "https://media.api-sports.io/football/teams/2380.png",
-            "winner": false
-          }
-        },
-        "goals": {
-          "home": 2,
-          "away": 1
-        },
-        "score": {
-          "halftime": {
-            "home": 2,
-            "away": 0
-          },
-          "fulltime": {
-            "home": 2,
-            "away": 1
-          },
-          "extratime": {
-            "home": null,
-            "away": null
-          },
-          "penalty": {
-            "home": null,
-            "away": null
-          }
-        }
       }
     ]
   },
   "Portugal": {
     "team_id": 27,
-    "fetched_at": "2026-06-12T09:25:01Z",
+    "fetched_at": "2026-06-13T03:25:06Z",
     "fixtures": [
       {
         "fixture": {
@@ -47805,7 +47805,7 @@
   },
   "Qatar": {
     "team_id": 1569,
-    "fetched_at": "2026-06-12T09:25:02Z",
+    "fetched_at": "2026-06-13T03:25:06Z",
     "fixtures": [
       {
         "fixture": {
@@ -49211,7 +49211,7 @@
   },
   "Saudi Arabia": {
     "team_id": 23,
-    "fetched_at": "2026-06-12T09:25:03Z",
+    "fetched_at": "2026-06-13T03:25:07Z",
     "fixtures": [
       {
         "fixture": {
@@ -50299,7 +50299,7 @@
         "teams": {
           "home": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": null
           },
@@ -50617,7 +50617,7 @@
   },
   "Scotland": {
     "team_id": 1108,
-    "fetched_at": "2026-06-12T09:25:03Z",
+    "fetched_at": "2026-06-13T03:25:08Z",
     "fixtures": [
       {
         "fixture": {
@@ -52023,7 +52023,7 @@
   },
   "Senegal": {
     "team_id": 13,
-    "fetched_at": "2026-06-12T09:25:05Z",
+    "fetched_at": "2026-06-13T03:25:08Z",
     "fixtures": [
       {
         "fixture": {
@@ -53429,7 +53429,7 @@
   },
   "South Africa": {
     "team_id": 1531,
-    "fetched_at": "2026-06-12T09:25:05Z",
+    "fetched_at": "2026-06-13T03:25:09Z",
     "fixtures": [
       {
         "fixture": {
@@ -54835,7 +54835,7 @@
   },
   "South Korea": {
     "team_id": 17,
-    "fetched_at": "2026-06-12T09:25:06Z",
+    "fetched_at": "2026-06-13T03:25:09Z",
     "fixtures": [
       {
         "fixture": {
@@ -54879,7 +54879,7 @@
           },
           "away": {
             "id": 770,
-            "name": "Czech Republic",
+            "name": "Czechia",
             "logo": "https://media.api-sports.io/football/teams/770.png",
             "winner": false
           }
@@ -56241,7 +56241,7 @@
   },
   "Spain": {
     "team_id": 9,
-    "fetched_at": "2026-06-12T09:25:07Z",
+    "fetched_at": "2026-06-13T03:25:10Z",
     "fixtures": [
       {
         "fixture": {
@@ -57647,7 +57647,7 @@
   },
   "Sweden": {
     "team_id": 5,
-    "fetched_at": "2026-06-12T09:25:07Z",
+    "fetched_at": "2026-06-13T03:25:10Z",
     "fixtures": [
       {
         "fixture": {
@@ -59053,7 +59053,7 @@
   },
   "Switzerland": {
     "team_id": 15,
-    "fetched_at": "2026-06-12T09:25:08Z",
+    "fetched_at": "2026-06-13T03:25:11Z",
     "fixtures": [
       {
         "fixture": {
@@ -60459,7 +60459,7 @@
   },
   "Tunisia": {
     "team_id": 28,
-    "fetched_at": "2026-06-12T09:25:08Z",
+    "fetched_at": "2026-06-13T03:25:12Z",
     "fixtures": [
       {
         "fixture": {
@@ -61865,7 +61865,7 @@
   },
   "Türkiye": {
     "team_id": 777,
-    "fetched_at": "2026-06-12T09:25:09Z",
+    "fetched_at": "2026-06-13T03:25:12Z",
     "fixtures": [
       {
         "fixture": {
@@ -63271,8 +63271,78 @@
   },
   "USA": {
     "team_id": 2384,
-    "fetched_at": "2026-06-12T09:25:10Z",
+    "fetched_at": "2026-06-13T03:25:13Z",
     "fixtures": [
+      {
+        "fixture": {
+          "id": 1489370,
+          "referee": "Danny Makkelie, Netherlands",
+          "timezone": "UTC",
+          "date": "2026-06-13T01:00:00+00:00",
+          "timestamp": 1781312400,
+          "periods": {
+            "first": 1781312400,
+            "second": 1781316000
+          },
+          "venue": {
+            "id": null,
+            "name": "SoFi Stadium",
+            "city": "Inglewood"
+          },
+          "status": {
+            "long": "Match Finished",
+            "short": "FT",
+            "elapsed": 90,
+            "extra": null
+          }
+        },
+        "league": {
+          "id": 1,
+          "name": "World Cup",
+          "country": "World",
+          "logo": "https://media.api-sports.io/football/leagues/1.png",
+          "flag": null,
+          "season": 2026,
+          "round": "Group Stage - 1",
+          "standings": true
+        },
+        "teams": {
+          "home": {
+            "id": 2384,
+            "name": "USA",
+            "logo": "https://media.api-sports.io/football/teams/2384.png",
+            "winner": true
+          },
+          "away": {
+            "id": 2380,
+            "name": "Paraguay",
+            "logo": "https://media.api-sports.io/football/teams/2380.png",
+            "winner": false
+          }
+        },
+        "goals": {
+          "home": 4,
+          "away": 1
+        },
+        "score": {
+          "halftime": {
+            "home": 3,
+            "away": 0
+          },
+          "fulltime": {
+            "home": 4,
+            "away": 1
+          },
+          "extratime": {
+            "home": null,
+            "away": null
+          },
+          "penalty": {
+            "home": null,
+            "away": null
+          }
+        }
+      },
       {
         "fixture": {
           "id": 1502474,
@@ -64602,82 +64672,12 @@
             "away": null
           }
         }
-      },
-      {
-        "fixture": {
-          "id": 1316375,
-          "referee": "O. Nation",
-          "timezone": "UTC",
-          "date": "2025-03-20T23:00:00+00:00",
-          "timestamp": 1742511600,
-          "periods": {
-            "first": 1742511600,
-            "second": 1742515200
-          },
-          "venue": {
-            "id": null,
-            "name": "SoFi Stadium",
-            "city": "Inglewood, California"
-          },
-          "status": {
-            "long": "Match Finished",
-            "short": "FT",
-            "elapsed": 90,
-            "extra": 9
-          }
-        },
-        "league": {
-          "id": 536,
-          "name": "CONCACAF Nations League",
-          "country": "World",
-          "logo": "https://media.api-sports.io/football/leagues/536.png",
-          "flag": null,
-          "season": 2024,
-          "round": "Semi-finals",
-          "standings": false
-        },
-        "teams": {
-          "home": {
-            "id": 2384,
-            "name": "USA",
-            "logo": "https://media.api-sports.io/football/teams/2384.png",
-            "winner": false
-          },
-          "away": {
-            "id": 11,
-            "name": "Panama",
-            "logo": "https://media.api-sports.io/football/teams/11.png",
-            "winner": true
-          }
-        },
-        "goals": {
-          "home": 0,
-          "away": 1
-        },
-        "score": {
-          "halftime": {
-            "home": 0,
-            "away": 0
-          },
-          "fulltime": {
-            "home": 0,
-            "away": 1
-          },
-          "extratime": {
-            "home": null,
-            "away": null
-          },
-          "penalty": {
-            "home": null,
-            "away": null
-          }
-        }
       }
     ]
   },
   "Uruguay": {
     "team_id": 7,
-    "fetched_at": "2026-06-12T09:25:10Z",
+    "fetched_at": "2026-06-13T03:25:14Z",
     "fixtures": [
       {
         "fixture": {
@@ -66083,7 +66083,7 @@
   },
   "Uzbekistan": {
     "team_id": 1568,
-    "fetched_at": "2026-06-12T09:25:11Z",
+    "fetched_at": "2026-06-13T03:25:14Z",
     "fixtures": [
       {
         "fixture": {

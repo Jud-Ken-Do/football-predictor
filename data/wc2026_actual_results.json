@@ -16,5 +16,59 @@
     "away_goals": 1,
     "neutral": true,
     "group": "A"
+  },
+  {
+    "date": "2026-06-13",
+    "home_team": "Australia",
+    "away_team": "T\u00fcrkiye",
+    "home_goals": 2,
+    "away_goals": 0,
+    "neutral": true,
+    "group": "D"
+  },
+  {
+    "date": "2026-06-13",
+    "home_team": "Brazil",
+    "away_team": "Morocco",
+    "home_goals": 1,
+    "away_goals": 1,
+    "neutral": true,
+    "group": "C"
+  },
+  {
+    "date": "2026-06-13",
+    "home_team": "Canada",
+    "away_team": "Bosnia and Herzegovina",
+    "home_goals": 1,
+    "away_goals": 1,
+    "neutral": true,
+    "group": "B"
+  },
+  {
+    "date": "2026-06-13",
+    "home_team": "Haiti",
+    "away_team": "Scotland",
+    "home_goals": 0,
+    "away_goals": 1,
+    "neutral": true,
+    "group": "C"
+  },
+  {
+    "date": "2026-06-13",
+    "home_team": "Qatar",
+    "away_team": "Switzerland",
+    "home_goals": 1,
+    "away_goals": 1,
+    "neutral": true,
+    "group": "B"
+  },
+  {
+    "date": "2026-06-13",
+    "home_team": "United States",
+    "away_team": "Paraguay",
+    "home_goals": 4,
+    "away_goals": 1,
+    "neutral": true,
+    "group": "D"
   }
 ]
