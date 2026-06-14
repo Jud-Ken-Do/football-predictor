@@ -96,6 +96,7 @@ DEFAULT_FEATURE_MODULES = [
     "kalman_strength",  # EKF time-varying attack/defense + uncertainty (Koopman & Lit 2015)
     # ── Match history ─────────────────────────────────────────────────────────
     "form",             # rolling pts/goals/GD over 5/10/20 matches
+    "rest",             # days since last match + trailing fixture congestion (Tier-0)
     "sos",              # strength of schedule: opponent-quality-adjusted win rate
     "h2h",              # head-to-head record
     "squad_strength",   # long-term attack/defence quality from intl results

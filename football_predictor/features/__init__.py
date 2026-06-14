@@ -1,5 +1,6 @@
 from football_predictor.features.base import FeatureModule
 from football_predictor.features.form import FormFeatures
+from football_predictor.features.rest import RestFeatures
 from football_predictor.features.elo import EloFeatures
 from football_predictor.features.glicko2 import Glicko2Features
 from football_predictor.features.kalman_strength import KalmanStrengthFeatures
@@ -22,6 +23,7 @@ from football_predictor.features.transfermarkt import TransfermarktFeatures
 
 REGISTRY: dict[str, type[FeatureModule]] = {
     "form": FormFeatures,
+    "rest": RestFeatures,
     "elo": EloFeatures,
     "glicko2": Glicko2Features,
     "kalman_strength": KalmanStrengthFeatures,
