@@ -1187,6 +1187,28 @@ def _load_injuries() -> dict:
 
 
 @st.cache_data
+def _load_xg_coverage() -> dict[str, int]:
+    """Per-team count of historical matches that carry xG.
+
+    xG never lives as columns on the training frame — it sits inside the
+    xg_form module's per-team timelines (football-data.co.uk + FBref). The Data
+    tab previously looked for xg_home/xg_away on all_data (always absent) and so
+    rendered empty. Read the real source and key by normalised team name.
+    """
+    try:
+        from football_predictor.features.xg_form import XGFormFeatures
+        mod = XGFormFeatures()
+        mod._ensure()
+        timelines = mod._timelines or {}
+    except Exception:
+        return {}
+    counts: dict[str, int] = {}
+    for team, tl in timelines.items():
+        counts[normalise(str(team))] = counts.get(normalise(str(team)), 0) + len(tl)
+    return counts
+
+
+@st.cache_data
 def _load_transfermarkt() -> dict[str, int]:
     path = _ROOT / "data" / "transfermarkt_wc2026.json"
     if not path.exists():
@@ -1716,8 +1738,9 @@ with tab_data:
     _date_min = pd.to_datetime(all_data_d["date"]).min()
     _date_max = pd.to_datetime(all_data_d["date"]).max()
     d3.metric("Date range", f"{_date_min.year}–{_date_max.year}")
-    has_xg = all_data_d.get("xg_home", pd.Series(dtype=float)).notna().sum() \
-        if "xg_home" in all_data_d.columns else 0
+    _xg_cov = _load_xg_coverage()
+    # Timelines store two team-rows per match (home + away); halve for matches.
+    has_xg = sum(_xg_cov.values()) // 2
     d4.metric("Matches with xG", f"{has_xg:,}")
 
     st.divider()
@@ -1784,26 +1807,26 @@ with tab_data:
     xg_rows = []
     for team in ALL_TEAMS:
         norm = normalise(team)
-        mask = (all_data_d["home_team"] == norm) | (all_data_d["away_team"] == norm)
-        team_df = all_data_d[mask]
         grp = next(g for g, ts in GROUPS.items() if team in ts)
-        if "xg_home" in team_df.columns:
-            total   = len(team_df)
-            with_xg = (team_df["xg_home"].notna() | team_df["xg_away"].notna()).sum() \
-                if "xg_away" in team_df.columns else team_df["xg_home"].notna().sum()
-            pct = with_xg / total if total else 0
-        else:
-            pct = 0
-        xg_rows.append({"Team": flag(team), "Group": grp, "xG coverage": pct})
+        xg_rows.append({
+            "Team": flag(team), "Group": grp,
+            "xG matches": int(_xg_cov.get(norm, 0)),
+        })
 
-    xg_df = pd.DataFrame(xg_rows).sort_values(["Group", "xG coverage"], ascending=[True, False])
+    xg_df = pd.DataFrame(xg_rows).sort_values(["Group", "xG matches"], ascending=[True, False])
+    _n_with = int((xg_df["xG matches"] > 0).sum())
+    st.caption(
+        f"{_n_with}/{len(xg_df)} WC 2026 teams have xG history. Gaps are the known "
+        "data limitation — football-data.co.uk covers UEFA/AFC/CONMEBOL qualifiers; "
+        "FBref fills some CAF/CONCACAF; the rest (no free xG source) run on form/Elo/Kalman."
+    )
     fig_xg = px.bar(
-        xg_df, x="Team", y="xG coverage", color="Group",
+        xg_df, x="Team", y="xG matches", color="Group",
         color_discrete_sequence=_GROUP_PALETTE,
-        title="xG data coverage per team (% of historical matches)",
+        title="xG-covered matches per team (qualifier history)",
     )
     fig_xg.update_layout(
-        height=380, yaxis_tickformat=".0%",
+        height=380,
         xaxis_tickangle=-45,
         margin=dict(l=0, r=0, t=40, b=80),
         legend_title="Group",
@@ -2026,8 +2049,24 @@ with tab_submission:
                     _rr = _hits.iloc[0]
 
             _s1, _s2 = int(_row["score1"]), int(_row["score2"])
-            _p_h = float(_rr["p_home"]) if _rr is not None else None
-            _p_a = float(_rr["p_away"]) if _rr is not None else None
+
+            # Genuine model probabilities: pred_p_* survive the played-match lock,
+            # so a played fixture shows what the model predicted (not 100/0/0).
+            # Fall back to p_* for older raw files without the pred_ columns.
+            def _rrval(col, fallback=None, cast=float):
+                if _rr is None or col not in _rr or pd.isna(_rr[col]):
+                    return fallback
+                return cast(_rr[col])
+
+            _p_h = _rrval("pred_p_home", _rrval("p_home"))
+            _p_d = _rrval("pred_p_draw", _rrval("p_draw"))
+            _p_a = _rrval("pred_p_away", _rrval("p_away"))
+            # Model's genuine most-likely score (never the locked actual).
+            _pred_s1 = _rrval("pred_score1", _rrval("score1", cast=int), cast=int)
+            _pred_s2 = _rrval("pred_score2", _rrval("score2", cast=int), cast=int)
+            _samp_s1 = _rrval("sample_score1", None, cast=int)
+            _samp_s2 = _rrval("sample_score2", None, cast=int)
+
             _upset = False
             if _p_h is not None and _p_a is not None:
                 _fav = "home" if _p_h > _p_a else ("away" if _p_a > _p_h else "draw")
@@ -2044,12 +2083,16 @@ with tab_submission:
                 "act_s1":   _actual[0] if _actual else None,
                 "act_s2":   _actual[1] if _actual else None,
                 "p_home":   _p_h,
-                "p_draw":   float(_rr["p_draw"]) if _rr is not None else None,
+                "p_draw":   _p_d,
                 "p_away":   _p_a,
-                "lam_h":    round(float(_rr["lam_home"]), 2) if _rr is not None else None,
-                "lam_a":    round(float(_rr["lam_away"]), 2) if _rr is not None else None,
-                "raw_s1":   int(_rr["score1"]) if _rr is not None else None,
-                "raw_s2":   int(_rr["score2"]) if _rr is not None else None,
+                "lam_h":    round(_rrval("lam_home"), 2) if _rrval("lam_home") is not None else None,
+                "lam_a":    round(_rrval("lam_away"), 2) if _rrval("lam_away") is not None else None,
+                "pred_s1":  _pred_s1,
+                "pred_s2":  _pred_s2,
+                "samp_s1":  _samp_s1,
+                "samp_s2":  _samp_s2,
+                "raw_s1":   _pred_s1,
+                "raw_s2":   _pred_s2,
                 "upset":    _upset,
             })
         _mdf = pd.DataFrame(_merged)
@@ -2157,21 +2200,35 @@ with tab_submission:
 
         # ── Raw probabilities ──────────────────────────────────────────────────
         with sub_raw_tab:
-            st.caption("From `output_raw.csv` — direct model output (probabilities + xG). Updated when you click **Refresh predictions**, not Regenerate.")
+            st.caption(
+                "From `output_raw.csv` — direct model output. **Most likely** = `floor(λ)`, the "
+                "single highest-probability score (mostly 1–0/1–1: that is genuinely where the "
+                "probability concentrates). **Realistic sample** = one random draw from the "
+                "match's distribution — shows the spread real football has, but is *not* more "
+                "accurate. **xG** = expected goals (the true continuous prediction)."
+            )
             if _sub_raw is None:
                 st.info("No raw output file — run Refresh predictions to generate it.")
             else:
+                _has_samp = _filt["samp_s1"].notna().any()
                 _rrows = []
                 for _, _r in _filt.iterrows():
                     if _r["p_home"] is None:
                         continue
-                    _rrows.append({
+                    _row_d = {
                         "Grp": _r["group"], "Home": flag(_r["h_sched"]),
                         "Away": flag(_r["a_sched"]),
-                        "Score": f"{_r['opt_s1']}–{_r['opt_s2']}",
+                        "Most likely": f"{_r['pred_s1']}–{_r['pred_s2']}",
+                    }
+                    if _has_samp and _r["samp_s1"] is not None:
+                        _row_d["Realistic sample"] = f"{int(_r['samp_s1'])}–{int(_r['samp_s2'])}"
+                    elif _has_samp:
+                        _row_d["Realistic sample"] = "—"
+                    _row_d.update({
                         "Home win": _r["p_home"], "Draw": _r["p_draw"], "Away win": _r["p_away"],
                         "xG H": _r["lam_h"], "xG A": _r["lam_a"],
                     })
+                    _rrows.append(_row_d)
                 _rdf = pd.DataFrame(_rrows)
                 _rst = (
                     _rdf.style
@@ -2183,34 +2240,60 @@ with tab_submission:
                 )
                 st.dataframe(_rst, use_container_width=True, hide_index=True, height=520)
 
-        # ── Compare optimised vs raw ───────────────────────────────────────────
+        # ── Compare optimised vs model prediction vs actual ────────────────────
         with sub_compare:
-            st.caption("Optimizer picks (`output.csv`) vs raw Poisson most-likely scores (`output_raw.csv`). Amber rows = the optimizer chose a different scoreline than the model's most likely.")
+            st.caption(
+                "**Optimised** (`output.csv`, points-maximising pick) vs **Model predicted** "
+                "(genuine most-likely score from λ) vs **Actual**. For played matches the model "
+                "prediction is the real forecast — *not* the recorded result — so you can see how "
+                "the model did. Amber = optimiser differs from the model; ✅/❌ = prediction hit the "
+                "actual outcome."
+            )
             if _sub_raw is None:
                 st.info("No raw output file — run Refresh predictions to generate it.")
             else:
+                _any_played = bool(_filt["played"].any())
                 _crows = []
                 for _, _r in _filt.iterrows():
                     if _r["raw_s1"] is None:
                         continue
                     _opt_s = f"{_r['opt_s1']}–{_r['opt_s2']}"
-                    _raw_s = f"{_r['raw_s1']}–{_r['raw_s2']}"
-                    _crows.append({
+                    _pred_s = f"{_r['raw_s1']}–{_r['raw_s2']}"
+                    _crow = {
                         "Grp": _r["group"], "Home": flag(_r["h_sched"]),
                         "Away": flag(_r["a_sched"]),
-                        "Optimised": _opt_s, "Raw / Poisson": _raw_s,
-                        "Δ": "—" if _opt_s == _raw_s else "≠",
-                        "Home win": _r["p_home"], "Away win": _r["p_away"],
-                    })
+                        "Optimised": _opt_s, "Model predicted": _pred_s,
+                        "Δ": "—" if _opt_s == _pred_s else "≠",
+                    }
+                    if _any_played:
+                        if _r["played"]:
+                            _a1, _a2 = int(_r["act_s1"]), int(_r["act_s2"])
+                            _po = "home" if _r["raw_s1"] > _r["raw_s2"] else ("away" if _r["raw_s1"] < _r["raw_s2"] else "draw")
+                            _ao = "home" if _a1 > _a2 else ("away" if _a1 < _a2 else "draw")
+                            _exact = (_r["raw_s1"], _r["raw_s2"]) == (_a1, _a2)
+                            _crow["Actual"] = f"{_a1}–{_a2}"
+                            _crow["Result"] = "✅ exact" if _exact else ("✅" if _po == _ao else "❌")
+                        else:
+                            _crow["Actual"] = "—"
+                            _crow["Result"] = ""
+                    _crow["Home win"] = _r["p_home"]
+                    _crow["Away win"] = _r["p_away"]
+                    _crows.append(_crow)
                 _cdf = pd.DataFrame(_crows)
                 _n_diff = (_cdf["Δ"] == "≠").sum()
-                st.caption(f"{_n_diff} of {len(_cdf)} matches differ between optimised and raw Poisson")
+                _cap = f"{_n_diff} of {len(_cdf)} matches: optimiser differs from the model's most-likely score"
+                if _any_played:
+                    _pl = _cdf[_cdf["Result"].isin(["✅", "✅ exact"])]
+                    _np_ = _cdf[_cdf["Result"] != ""]
+                    if len(_np_):
+                        _cap += f"  ·  model outcome correct on {len(_pl)}/{len(_np_)} played"
+                st.caption(_cap)
 
                 def _hl_diff(row):
                     styles = [""] * len(row)
+                    idx = list(row.index)
                     if row.get("Δ") == "≠":
-                        idx = list(row.index)
-                        for col in ["Optimised", "Raw / Poisson"]:
+                        for col in ["Optimised", "Model predicted"]:
                             if col in idx:
                                 styles[idx.index(col)] = "background-color:#4d2800;color:#ffb300"
                     return styles
