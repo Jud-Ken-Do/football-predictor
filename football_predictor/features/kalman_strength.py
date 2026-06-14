@@ -11,10 +11,13 @@ FORWARD PASS (EKF)
 ──────────────────
 Used at PREDICTION TIME — causally correct, uses only past data.
   1. Time update:    P ← P + q²·Δt·I           (uncertainty grows between matches)
-  2. EKF update:     Jacobian H = [λ, 0] or [0, λ]  (d(Poisson mean)/d(state))
-                     Innovation covariance S = H P H' + λ   (Poisson: Var = mean)
-                     Kalman gain K = P H' / S
-                     x ← x + K·innovation;  P ← Joseph-form update
+  2. Joint EKF update (roadmap R4): both teams stacked into one state
+                     z = [att_h, def_h, att_a, def_a], block-diagonal prior M.
+                     Home goals:  H1 = [λ_h, 0, 0, λ_h];  away goals: H2 = [0, λ_a, λ_a, 0]
+                     Innovation covariance S = H M H' + λ/weight  (Poisson: Var = mean)
+                     Kalman gain K = M H' / S;  z ← z + K·innov;  M ← Joseph-form update
+                     Obs 1 couples the two blocks; obs 2 sees that coupling.
+                     Marginals scattered back per team (no global cross-team cov).
 
 RTS BACKWARD SMOOTHER (Rauch-Tung-Striebel)
 ────────────────────────────────────────────
@@ -101,37 +104,32 @@ def _g_func(phi: float) -> float:
     return 1.0 / math.sqrt(1.0 + 3.0 * phi * phi / (math.pi * math.pi))
 
 
-def _ekf_obs_update(
-    state: dict,
-    lam: float,
+def _joint_obs_update(
+    z: np.ndarray,
+    M: np.ndarray,
     innovation: float,
     h_vec: np.ndarray,
-    match_weight: float = 1.0,
-    extra_obs_var: float = 0.0,
-) -> None:
-    """In-place EKF observation update (Joseph form for numerical stability).
+    r_eff: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Single scalar EKF observation update on a joint (stacked) state.
 
-    match_weight scales measurement trust: WC (1.5×) → lower R → larger Kalman gain.
-    Friendly (0.3×) → higher R → smaller gain. Equivalent to R = Poisson_var / weight.
+    Joseph form for numerical stability. Returns (z_new, M_new) rather than
+    mutating in place so the two within-match observations compose cleanly.
 
-    extra_obs_var: the OTHER team's contribution to the innovation covariance
-    (λ²·P_opponent). The observation y ~ Poisson(λ(att_self, def_opp)) depends
-    on both teams' states; ignoring the opponent's variance makes S too small,
-    gains too large, and P shrink too fast → systematic overconfidence in the
-    kalman_*_std features that gate the ensemble α.
+    r_eff is the measurement variance, R = Poisson_var / match_weight. The
+    opponent's contribution to the innovation covariance is NO LONGER passed
+    in separately (the old `extra_obs_var` hack): with a joint covariance M
+    that spans both teams, `h_vec @ M @ h_vec` already includes both the home
+    and away state variances — and, on the second observation, the
+    cross-covariance the first observation induced (roadmap R4).
     """
-    P = state["P"]
-    PH = P @ h_vec
-    # Effective R: same value MUST be used in the gain (via S) and in the
-    # Joseph covariance term — mixing R=λ/w with R=λ mis-states the posterior P.
-    r_eff = max(lam, 1e-4) / max(match_weight, 1e-3) + extra_obs_var
-    S = float(h_vec @ PH) + r_eff
-    K = PH / S
-    state["x"] = state["x"] + K * innovation
-    I_KH = np.eye(2) - np.outer(K, h_vec)
-    state["P"] = I_KH @ P @ I_KH.T + r_eff * np.outer(K, K)
-    state["P"][0, 0] = max(state["P"][0, 0], _P_FLOOR)
-    state["P"][1, 1] = max(state["P"][1, 1], _P_FLOOR)
+    MH = M @ h_vec
+    S = float(h_vec @ MH) + r_eff
+    K = MH / S
+    z_new = z + K * innovation
+    I_KH = np.eye(M.shape[0]) - np.outer(K, h_vec)
+    M_new = I_KH @ M @ I_KH.T + r_eff * np.outer(K, K)
+    return z_new, M_new
 
 
 def _ekf_match_update(
@@ -142,27 +140,56 @@ def _ekf_match_update(
     neutral: bool,
     match_weight: float = 1.0,
 ) -> None:
-    """EKF update for one full match (two sequential Poisson observations)."""
+    """Joint 4-d EKF update for one full match (roadmap R4).
+
+    The two teams' states are stacked into z = [att_h, def_h, att_a, def_a]
+    with a block-diagonal prior covariance (teams carry no stored cross-team
+    covariance between matches). The two Poisson observations — home goals,
+    then away goals — are applied as coupled updates on the joint covariance:
+
+        λ_h = exp(μ + att_h + def_a + ha)   → H1 = [λ_h, 0,   0,   λ_h]
+        λ_a = exp(μ + att_a + def_h)        → H2 = [0,   λ_a, λ_a, 0  ]
+
+    The first observation induces cross-covariance between the home and away
+    blocks (via each team's own att↔def correlation); the second observation
+    then sees that coupling. The previous implementation updated the two
+    per-team covariances separately and approximated the opponent's variance
+    with an `extra_obs_var` term in S — correct for the first observation but
+    blind to the cross-covariance feeding the second. After both updates the
+    marginals are scattered back per team (global cross-team covariance is not
+    retained — that would mean an O(n_teams²) joint filter).
+    """
     ha = 0.0 if neutral else _HOME_ADV
 
-    lam_h = max(math.exp(_MU + h_state["x"][0] + a_state["x"][1] + ha), 1e-4)
-    inn_h = home_goals - lam_h
-    # Opponent variance contributions captured BEFORE either side updates.
-    var_h_att = lam_h * lam_h * float(h_state["P"][0, 0])
-    var_a_def = lam_h * lam_h * float(a_state["P"][1, 1])
-    _ekf_obs_update(h_state, lam_h, inn_h, np.array([lam_h, 0.0]), match_weight,
-                    extra_obs_var=var_a_def)
-    _ekf_obs_update(a_state, lam_h, inn_h, np.array([0.0, lam_h]), match_weight,
-                    extra_obs_var=var_h_att)
+    z = np.concatenate([h_state["x"], a_state["x"]])
+    M = np.zeros((4, 4))
+    M[0:2, 0:2] = h_state["P"]
+    M[2:4, 2:4] = a_state["P"]
 
-    lam_a = max(math.exp(_MU + a_state["x"][0] + h_state["x"][1]), 1e-4)
-    inn_a = away_goals - lam_a
-    var_a_att = lam_a * lam_a * float(a_state["P"][0, 0])
-    var_h_def = lam_a * lam_a * float(h_state["P"][1, 1])
-    _ekf_obs_update(a_state, lam_a, inn_a, np.array([lam_a, 0.0]), match_weight,
-                    extra_obs_var=var_h_def)
-    _ekf_obs_update(h_state, lam_a, inn_a, np.array([0.0, lam_a]), match_weight,
-                    extra_obs_var=var_a_att)
+    # Observation 1: home goals.
+    lam_h = max(math.exp(_MU + z[0] + z[3] + ha), 1e-4)
+    r_h = max(lam_h, 1e-4) / max(match_weight, 1e-3)
+    z, M = _joint_obs_update(z, M, home_goals - lam_h,
+                             np.array([lam_h, 0.0, 0.0, lam_h]), r_h)
+
+    # Observation 2: away goals — relinearised on the post-obs1 state (matches
+    # the previous sequential behaviour), now coupled through the joint M.
+    lam_a = max(math.exp(_MU + z[2] + z[1]), 1e-4)
+    r_a = max(lam_a, 1e-4) / max(match_weight, 1e-3)
+    z, M = _joint_obs_update(z, M, away_goals - lam_a,
+                             np.array([0.0, lam_a, lam_a, 0.0]), r_a)
+
+    # Scatter marginals back; floor the variance diagonals.
+    h_state["x"] = z[0:2].copy()
+    a_state["x"] = z[2:4].copy()
+    Ph = M[0:2, 0:2].copy()
+    Pa = M[2:4, 2:4].copy()
+    Ph[0, 0] = max(Ph[0, 0], _P_FLOOR)
+    Ph[1, 1] = max(Ph[1, 1], _P_FLOOR)
+    Pa[0, 0] = max(Pa[0, 0], _P_FLOOR)
+    Pa[1, 1] = max(Pa[1, 1], _P_FLOOR)
+    h_state["P"] = Ph
+    a_state["P"] = Pa
 
 
 def _run_rts(team_hist: dict[str, list[dict]]) -> None:
