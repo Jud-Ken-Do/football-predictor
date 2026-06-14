@@ -330,7 +330,8 @@ def apply_to_match(
     home_team: str = "",
     away_team: str = "",
     rho: float = 0.0,
-) -> tuple[float, float, float, float, float]:
+    return_preblend: bool = False,
+) -> tuple[float, ...]:
     """Full post-processing pipeline for one match.
 
     Order: venue λ adjustment → market λ blend (AH/O-U) → quality nudge
@@ -366,6 +367,14 @@ def apply_to_match(
     if home_team and away_team:
         p_h, p_d, p_a = absence_adjust(p_h, p_d, p_a, home_team, away_team)
 
+    # Pre-1X2-blend probabilities = the model's own view before the market
+    # anchor: venue + AH/O-U λ-blend + quality + absence are applied, but NOT
+    # the 0.70 market 1X2 blend. Exposed for the un-blended "model's-eye" track
+    # (the market is far sharper on favourites; this is the model alone).
+    p_h_pre, p_d_pre, p_a_pre = p_h, p_d, p_a
+
     p_h, p_d, p_a = market_1x2_blend(p_h, p_d, p_a, ctx_row)
 
+    if return_preblend:
+        return p_h, p_d, p_a, lam_h_adj, lam_a_adj, p_h_pre, p_d_pre, p_a_pre
     return p_h, p_d, p_a, lam_h_adj, lam_a_adj

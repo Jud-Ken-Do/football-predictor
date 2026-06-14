@@ -415,6 +415,8 @@ def _save_raw_predictions(match_data: list[dict]) -> Path:
                   "sample_score1", "sample_score2",
                   "p_home", "p_draw", "p_away",
                   "pred_p_home", "pred_p_draw", "pred_p_away",
+                  # mdl_p_* = un-blended model's-eye probs (before the 0.70 market 1X2 blend)
+                  "mdl_p_home", "mdl_p_draw", "mdl_p_away",
                   "lam_home", "lam_away"]
 
     lookup: dict[frozenset, dict] = {
@@ -457,6 +459,11 @@ def _save_raw_predictions(match_data: list[dict]) -> Path:
         pp_h = m.get("pred_p_home", p_h)
         pp_d = m.get("pred_p_draw", p_d)
         pp_a = m.get("pred_p_away", p_a)
+        # Un-blended model's-eye probs (fall back to the blended genuine probs
+        # for older match dicts without the pre-blend keys).
+        mp_h = m.get("p_home_preblend", pp_h)
+        mp_d = m.get("p_draw_preblend", pp_d)
+        mp_a = m.get("p_away_preblend", pp_a)
 
         if m["home_team"] != t1:
             # Orient every home/away-paired field to the template's team1/team2.
@@ -465,6 +472,7 @@ def _save_raw_predictions(match_data: list[dict]) -> Path:
             samp_h, samp_a = samp_a, samp_h
             p_h, p_a = p_a, p_h
             pp_h, pp_a = pp_a, pp_h
+            mp_h, mp_a = mp_a, mp_h
             lam_h, lam_a = lam_a, lam_h
 
         rows.append({
@@ -476,6 +484,8 @@ def _save_raw_predictions(match_data: list[dict]) -> Path:
             "p_home": f"{p_h:.3f}", "p_draw": f"{p_d:.3f}", "p_away": f"{p_a:.3f}",
             "pred_p_home": f"{pp_h:.3f}", "pred_p_draw": f"{pp_d:.3f}",
             "pred_p_away": f"{pp_a:.3f}",
+            "mdl_p_home": f"{mp_h:.3f}", "mdl_p_draw": f"{mp_d:.3f}",
+            "mdl_p_away": f"{mp_a:.3f}",
             "lam_home": f"{lam_h:.3f}", "lam_away": f"{lam_a:.3f}",
         })
 

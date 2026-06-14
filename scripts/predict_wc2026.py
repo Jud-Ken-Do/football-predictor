@@ -371,7 +371,7 @@ def predict_group_stage(
         ctx_row = ctx_gs.iloc[i].to_dict() if i < len(ctx_gs) else {}
 
         # Apply WC context: venue λ-adjustment + quality log-odds nudge
-        p_h, p_d, p_a, lam_h_adj, lam_a_adj = apply_to_match(
+        p_h, p_d, p_a, lam_h_adj, lam_a_adj, p_h_pre, p_d_pre, p_a_pre = apply_to_match(
             lam_h, lam_a,
             float(ens_row["home_win"].iloc[0]),
             float(ens_row["draw"].iloc[0]),
@@ -381,6 +381,7 @@ def predict_group_stage(
             home_team=home,
             away_team=away,
             rho=bp._rho,
+            return_preblend=True,
         )
 
         # Kalman uncertainty in log(λ): σ_log(λ_h) ≈ √(σ²_att_h + σ²_def_a)
@@ -396,6 +397,9 @@ def predict_group_stage(
         results.append({
             **f,
             "p_home": p_h, "p_draw": p_d, "p_away": p_a,
+            # Un-blended "model's-eye" probs (pre market-1X2-blend) — the raw
+            # model view used by the Model-vs-Market track and the model's-eye bracket.
+            "p_home_preblend": p_h_pre, "p_draw_preblend": p_d_pre, "p_away_preblend": p_a_pre,
             "bp_lam_home": lam_h_adj, "bp_lam_away": lam_a_adj,
             "kalman_lam_h_log_std": lam_h_log_std,
             "kalman_lam_a_log_std": lam_a_log_std,
