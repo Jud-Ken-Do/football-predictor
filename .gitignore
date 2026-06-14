@@ -30,3 +30,6 @@ other_submissions/
 # Submission package artifacts (full repo copy + zip — regenerate, don't track)
 Occam's Folly/
 Occam's Folly.zip
+
+# Local scratch — competitor entry, not part of the project
+new.py
