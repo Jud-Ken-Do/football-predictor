@@ -55,9 +55,27 @@ class FormFeatures(FeatureModule):
         self._build_cache(data)
 
     def _build_cache(self, data: pd.DataFrame) -> None:
+        from football_predictor import constants as _c
+        self._shrink_k = float(_c.FORM_SHRINKAGE_K) if _c.USE_FORM_SHRINKAGE else 0.0
+
         df = data.copy()
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date").reset_index(drop=True)
+
+        # Population per-game means (R9 shrinkage prior). gd averages to 0 by
+        # symmetry; scored == conceded globally — but compute all so the prior
+        # is exact for the actual data window.
+        gf_all = pd.concat([df["home_goals"], df["away_goals"]]).astype(float)
+        ga_all = pd.concat([df["away_goals"], df["home_goals"]]).astype(float)
+        decided = (gf_all != ga_all)
+        pop = {
+            "scored": float(gf_all.mean()),
+            "conceded": float(ga_all.mean()),
+            "gd": float((gf_all - ga_all).mean()),
+            "pts": float((3.0 * (gf_all > ga_all) + 1.0 * (gf_all == ga_all)).mean()),
+            "win_rate": float((gf_all > ga_all).mean()),
+        }
+        self._pop = pop
 
         team_history: dict[str, deque] = {}
         self._cache = {}
@@ -72,14 +90,16 @@ class FormFeatures(FeatureModule):
             for team, gf, ga in [(home, hg, ag), (away, ag, hg)]:
                 key = (team, date_str)
                 if key not in self._cache:
-                    self._cache[key] = _form_from_history(team_history.get(team, deque()))
+                    self._cache[key] = _form_from_history(
+                        team_history.get(team, deque()), pop, self._shrink_k)
 
             for team, gf, ga in [(home, hg, ag), (away, ag, hg)]:
                 if team not in team_history:
                     team_history[team] = deque(maxlen=_MAX_WINDOW)
                 team_history[team].append({"gf": gf, "ga": ga})
 
-        self._final = {t: _form_from_history(h) for t, h in team_history.items()}
+        self._final = {t: _form_from_history(h, pop, self._shrink_k)
+                       for t, h in team_history.items()}
 
     @staticmethod
     def _empty_form() -> dict[str, float]:
@@ -112,9 +132,17 @@ class FormFeatures(FeatureModule):
         return names
 
 
-def _form_from_history(history: deque) -> dict[str, float]:
+def _shrink(mean: float, n: int, pop: float, k: float) -> float:
+    """Empirical-Bayes shrink a window mean toward the population mean (R9)."""
+    if k <= 0.0 or n <= 0:
+        return mean
+    return (n * mean + k * pop) / (n + k)
+
+
+def _form_from_history(history: deque, pop: dict | None = None, k: float = 0.0) -> dict[str, float]:
     out: dict[str, float] = {}
     matches = list(history)  # newest at end (appendleft not used — oldest at front, newest at back)
+    pop = pop or {}
     # We want the most recent w matches, so take from the end
     for w in FORM_WINDOW_SIZES:
         window = matches[-w:] if len(matches) >= w else matches
@@ -143,11 +171,12 @@ def _form_from_history(history: deque) -> dict[str, float]:
         # pts_last20=9 vs an established team's ~30. Feature NAMES are kept
         # for downstream compatibility, but pts_last{w} / gd_last{w} are now
         # per-game averages over the available window.
-        out[f"pts_last{w}"]          = float(np.mean(pts))
-        out[f"gd_last{w}"]           = float(np.mean(gd))
-        out[f"goals_scored_last{w}"] = float(np.mean(scored))
-        out[f"goals_conceded_last{w}"] = float(np.mean(conceded))
-        out[f"win_rate_last{w}"]     = float(np.mean(wins))
+        n = len(window)
+        out[f"pts_last{w}"]            = _shrink(float(np.mean(pts)),      n, pop.get("pts", 0.0), k)
+        out[f"gd_last{w}"]            = _shrink(float(np.mean(gd)),        n, pop.get("gd", 0.0), k)
+        out[f"goals_scored_last{w}"]  = _shrink(float(np.mean(scored)),   n, pop.get("scored", 0.0), k)
+        out[f"goals_conceded_last{w}"] = _shrink(float(np.mean(conceded)), n, pop.get("conceded", 0.0), k)
+        out[f"win_rate_last{w}"]      = _shrink(float(np.mean(wins)),      n, pop.get("win_rate", 0.0), k)
     # Expose sample size explicitly so the model can weigh form reliability
     # (capped at the largest window by the deque maxlen).
     out["n_matches"] = float(min(len(matches), _MAX_WINDOW))

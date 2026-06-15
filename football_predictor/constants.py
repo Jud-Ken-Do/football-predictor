@@ -87,6 +87,28 @@ class ModelType(Enum):
 
 DEFAULT_MODEL = ModelType.GRADIENT_BOOST
 
+# ── R9: empirical-Bayes shrinkage of form / SoS window means ──────────────────
+# Rolling form & SoS window stats are per-game means over as few as a handful of
+# matches — noisy for low-cap teams (Curaçao, Jordan, …). When True, each window
+# mean is shrunk toward the population mean weighted by sample size:
+#     shrunk = (n·window_mean + K·pop_mean) / (n + K)
+# ❌ TESTED & REJECTED 2026-06-15 (scripts/roadmap_ablation.py): worsened WC
+# log-loss on all 3 folds (avg 1.0084→1.0128, +0.0044). Shrinkage flattens the
+# form/SoS features XGBoost was already exploiting (it has the n_matches feature
+# to gauge reliability itself). Kept behind a flag, default OFF.
+USE_FORM_SHRINKAGE = False
+FORM_SHRINKAGE_K = 5.0   # prior pseudo-count (in matches)
+
+# ── R10: estimate Kalman baseline μ and home advantage from the data ──────────
+# Replaces hard-coded μ=log(1.3) and home_adv=0.20 with moment estimates from
+# the goal data (att/def are zero-mean, so no-home-term goals give E[goals]=exp(μ);
+# non-neutral home goals give the extra exp(home_adv)). Clamped to sane ranges.
+# ✅ KEPT 2026-06-15: improved WC log-loss on all 3 folds (avg 1.0084→1.0036,
+# −0.0048), best single config in the ablation. Within the ±0.1 CI but
+# directionally consistent and principled (removes two hand-set hyperparameters)
+# — same keep-standard as R5/R7. Revert to False to disable.
+USE_KALMAN_EM_MU_HA = True
+
 # ── xG observation in Kalman EKF ──────────────────────────────────────────────
 # When True, the Kalman filter observes a blend of actual goals and calibrated
 # per-match xG (StatsBomb + football-data) instead of raw goals — a lower-noise

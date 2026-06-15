@@ -51,8 +51,12 @@ def _pts(home_goals: int, away_goals: int, is_home: bool) -> float:
     return 1.0
 
 
-def _window_stats(hist: list[tuple[float, float]], n: int) -> tuple[float, float]:
-    """Returns (avg_opp_elo, adj_win_rate) over last n entries."""
+def _window_stats(hist: list[tuple[float, float]], n: int, k: float = 0.0) -> tuple[float, float]:
+    """Returns (avg_opp_elo, adj_win_rate) over last n entries.
+
+    R9: when k>0, shrink both toward their priors (Elo→1500, adj_wr→1/3) by
+    sample size: shrunk = (m·x + k·prior)/(m + k). Steadies thin-history teams.
+    """
     window = hist[-n:] if len(hist) >= n else hist
     if not window:
         return _DEFAULT_ELO, 1.0 / 3.0
@@ -61,6 +65,10 @@ def _window_stats(hist: list[tuple[float, float]], n: int) -> tuple[float, float
     avg_elo = sum(elos) / len(elos)
     total_elo = sum(elos)
     adj_wr = sum(p * e for p, e in zip(pts, elos)) / (3.0 * total_elo) if total_elo > 0 else 1.0 / 3.0
+    if k > 0.0:
+        m = len(window)
+        avg_elo = (m * avg_elo + k * _DEFAULT_ELO) / (m + k)
+        adj_wr = (m * adj_wr + k * (1.0 / 3.0)) / (m + k)
     return avg_elo, adj_wr
 
 
@@ -87,10 +95,12 @@ class StrengthOfScheduleFeatures(FeatureModule):
         h = snap.get(home, self._final.get(home, []))
         a = snap.get(away, self._final.get(away, []))
 
-        h_elo5,  h_wr5  = _window_stats(h, 5)
-        h_elo10, h_wr10 = _window_stats(h, 10)
-        a_elo5,  a_wr5  = _window_stats(a, 5)
-        a_elo10, a_wr10 = _window_stats(a, 10)
+        from football_predictor import constants as _c
+        k = float(_c.FORM_SHRINKAGE_K) if _c.USE_FORM_SHRINKAGE else 0.0
+        h_elo5,  h_wr5  = _window_stats(h, 5, k)
+        h_elo10, h_wr10 = _window_stats(h, 10, k)
+        a_elo5,  a_wr5  = _window_stats(a, 5, k)
+        a_elo10, a_wr10 = _window_stats(a, 10, k)
 
         return {
             "sos_home_avg_opp_elo5":   h_elo5  / _ELO_NORM,

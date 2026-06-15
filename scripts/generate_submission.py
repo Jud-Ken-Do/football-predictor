@@ -254,10 +254,16 @@ def optimise_group_scores(
     p_advance_global: dict[str, float],
     n_sims: int = 20_000,
     k: int = 8,
-) -> list[tuple[int, int]]:
+    third_ctx: tuple | None = None,
+) -> tuple[list[tuple[int, int]], float]:
     """
     Same local search as v1, but uses p_advance_global (from cross-group simulation)
     instead of per-group simulation to estimate P(team actually advances to R32).
+
+    R8: when ``third_ctx = (other_thirds_stats, p_advance)`` is supplied (2nd pass),
+    the EV also credits this group's tipped 3rd-place team when, given the other
+    11 groups' (fixed) tipped thirds, it ranks in the global best-8 — the
+    cross-group coupling the per-group 1st pass cannot see. Returns (scores, best_ev).
     """
     n = len(group_matches)
     rng = np.random.default_rng(42)
@@ -319,6 +325,16 @@ def optimise_group_scores(
         pred_advances = _group_top2(pred_h, pred_a, match_pairs)  # (4,) bool
         # Bonus: tipped team × P(they actually advance per global sim)
         adv = 3.0 * float(np.sum(pred_advances.astype(float) * p_advance))
+        # R8: credit the tipped 3rd-place team when it makes the global best-8
+        # (given the other groups' fixed thirds). Couples this group to the rest.
+        if third_ctx is not None:
+            other_thirds, padv = third_ctx
+            pts1, gd1, gf1, ranks1 = _group_standings(pred_h[None], pred_a[None], match_pairs)
+            ti = int(ranks1[0, 2])
+            mine = (int(pts1[0, ti]), int(gd1[0, ti]), int(gf1[0, ti]))
+            rank = 1 + sum(1 for o in other_thirds if o > mine)   # tuple compare: higher=better
+            if rank <= 8:
+                adv += 3.0 * float(padv.get(teams[ti], 0.0))
         return total_match + adv
 
     def descend(start: list[int]) -> tuple[list[int], float]:
@@ -349,7 +365,22 @@ def optimise_group_scores(
         if cand_ev > best_ev + 1e-9:
             combo, best_ev = cand_combo, cand_ev
 
-    return [candidates[m][c] for m, c in enumerate(combo)]
+    return [candidates[m][c] for m, c in enumerate(combo)], best_ev
+
+
+def _implied_third(group_matches: list[dict], scores: list[tuple[int, int]]) -> tuple[str, tuple]:
+    """The 3rd-place team and its (pts, gd, gf) implied by chosen scorelines."""
+    teams: list[str] = []
+    for m in group_matches:
+        for t in (m["home_team"], m["away_team"]):
+            if t not in teams:
+                teams.append(t)
+    match_pairs = [(teams.index(m["home_team"]), teams.index(m["away_team"])) for m in group_matches]
+    sh = np.array([[s[0] for s in scores]], dtype=np.int32)
+    sa = np.array([[s[1] for s in scores]], dtype=np.int32)
+    pts, gd, gf, ranks = _group_standings(sh, sa, match_pairs)
+    ti = int(ranks[0, 2])
+    return teams[ti], (int(pts[0, ti]), int(gd[0, ti]), int(gf[0, ti]))
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -363,6 +394,8 @@ def main(n_global_sims: int = 30_000):
                    help="Use full MCMC posterior for BayesPoisson instead of MAP (~5 min extra)")
     p.add_argument("--mcmc-draws", type=int, default=500)
     p.add_argument("--mcmc-tune",  type=int, default=250)
+    p.add_argument("--no-two-pass", action="store_true",
+                   help="Disable R8 second pass (third-place cross-group coupling)")
     args = p.parse_args()
 
     print("=" * 50)
@@ -400,14 +433,37 @@ def main(n_global_sims: int = 30_000):
         groups[m["group"]].append(m)
 
     print("\n[4/5] Optimising scores per group (match pts + global advancement bonus)...")
+    labels = sorted(groups)
+
+    # ── Pass 1: per-group optimisation (no third-place coupling) ──────────────
+    scores_by_group: dict[str, list[tuple[int, int]]] = {}
+    ev_pass1 = 0.0
+    for g in labels:
+        sc, ev = optimise_group_scores(groups[g], p_advance)
+        scores_by_group[g] = sc
+        ev_pass1 += ev
+    print(f"  pass 1 done — total EV {ev_pass1:.3f}")
+
+    # ── Pass 2 (R8): credit tipped 3rd-place teams via the global best-8 cut ───
+    if not args.no_two_pass:
+        thirds = {g: _implied_third(groups[g], scores_by_group[g]) for g in labels}
+        ev_pass2 = 0.0
+        for g in labels:
+            # other 11 groups' tipped-third stats (fixed) form the best-8 cut
+            other_stats = [thirds[og][1] for og in labels if og != g]
+            sc, ev = optimise_group_scores(groups[g], p_advance,
+                                           third_ctx=(other_stats, p_advance))
+            scores_by_group[g] = sc
+            thirds[g] = _implied_third(groups[g], sc)   # refresh for later groups
+            ev_pass2 += ev
+        print(f"  pass 2 (R8 coupling) done — total EV {ev_pass2:.3f}  "
+              f"(Δ {ev_pass2 - ev_pass1:+.3f} vs pass 1)")
+
     score_lookup: dict[frozenset, tuple[str, str, int, int]] = {}
-    for group_label in sorted(groups):
-        group_matches = groups[group_label]
-        best_scores = optimise_group_scores(group_matches, p_advance)
-        for m, (s_h, s_a) in zip(group_matches, best_scores):
+    for g in labels:
+        for m, (s_h, s_a) in zip(groups[g], scores_by_group[g]):
             key = frozenset([m["home_team"], m["away_team"]])
             score_lookup[key] = (m["home_team"], m["away_team"], s_h, s_a)
-        print(f"  Group {group_label}: done")
 
     # Read template and fill scores
     template_path = _ROOT / "templates" / "output_template.csv"

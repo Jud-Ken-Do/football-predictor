@@ -145,6 +145,8 @@ def _ekf_match_update(
     away_goals: float,
     neutral: bool,
     match_weight: float = 1.0,
+    mu: float = _MU,
+    home_adv: float = _HOME_ADV,
 ) -> None:
     """Joint 4-d EKF update for one full match (roadmap R4).
 
@@ -165,7 +167,7 @@ def _ekf_match_update(
     marginals are scattered back per team (global cross-team covariance is not
     retained — that would mean an O(n_teams²) joint filter).
     """
-    ha = 0.0 if neutral else _HOME_ADV
+    ha = 0.0 if neutral else home_adv
 
     z = np.concatenate([h_state["x"], a_state["x"]])
     M = np.zeros((4, 4))
@@ -173,14 +175,14 @@ def _ekf_match_update(
     M[2:4, 2:4] = a_state["P"]
 
     # Observation 1: home goals.
-    lam_h = max(math.exp(_MU + z[0] + z[3] + ha), 1e-4)
+    lam_h = max(math.exp(mu + z[0] + z[3] + ha), 1e-4)
     r_h = max(lam_h, 1e-4) / max(match_weight, 1e-3)
     z, M = _joint_obs_update(z, M, home_goals - lam_h,
                              np.array([lam_h, 0.0, 0.0, lam_h]), r_h)
 
     # Observation 2: away goals — relinearised on the post-obs1 state (matches
     # the previous sequential behaviour), now coupled through the joint M.
-    lam_a = max(math.exp(_MU + z[2] + z[1]), 1e-4)
+    lam_a = max(math.exp(mu + z[2] + z[1]), 1e-4)
     r_a = max(lam_a, 1e-4) / max(match_weight, 1e-3)
     z, M = _joint_obs_update(z, M, away_goals - lam_a,
                              np.array([0.0, lam_a, lam_a, 0.0]), r_a)
@@ -300,6 +302,11 @@ class KalmanStrengthFeatures(FeatureModule):
         # Observe a goals/xG blend instead of raw goals (off unless backtested).
         self._use_xg = _c.USE_XG_OBSERVATION if use_xg is None else use_xg
         self._xg_blend = _c.XG_OBS_BLEND if xg_blend is None else xg_blend
+        # R10: baseline μ + home advantage. Hard-coded defaults unless the EM
+        # flag is on, in which case _estimate_mu_ha() fits them from the data.
+        self._em_mu_ha: bool = _c.USE_KALMAN_EM_MU_HA
+        self._mu: float = _MU
+        self._home_adv: float = _HOME_ADV
         self._q_per_year: float = _Q_PER_YEAR
         self._tuned: bool = False
         self._states: dict[str, dict] = {}
@@ -351,9 +358,9 @@ class KalmanStrengthFeatures(FeatureModule):
         h = _state_for(home)
         a = _state_for(away)
 
-        ha = 0.0 if is_neutral else _HOME_ADV
-        lam_h = math.exp(_MU + h["x"][0] + a["x"][1] + ha)
-        lam_a = math.exp(_MU + a["x"][0] + h["x"][1])
+        ha = 0.0 if is_neutral else self._home_adv
+        lam_h = math.exp(self._mu + h["x"][0] + a["x"][1] + ha)
+        lam_a = math.exp(self._mu + a["x"][0] + h["x"][1])
 
         h_att_std = math.sqrt(max(float(h["P"][0, 0]), _P_FLOOR))
         h_def_std = math.sqrt(max(float(h["P"][1, 1]), _P_FLOOR))
@@ -388,10 +395,37 @@ class KalmanStrengthFeatures(FeatureModule):
 
     # ── Cache construction ─────────────────────────────────────────────────────
 
+    def _estimate_mu_ha(self, data: pd.DataFrame) -> None:
+        """R10: estimate baseline μ and home advantage from the goal data.
+
+        att/def are zero-mean deviations, so observations without a home term
+        (all away goals + home goals at neutral venues) have E[goals]=exp(μ);
+        non-neutral home goals carry the extra exp(home_adv). A robust
+        moment estimate (clamped to sane ranges) replaces the hard-coded
+        log(1.3) / 0.20 without disturbing the EKF/RTS internals.
+        """
+        df = data
+        hg = df["home_goals"].astype(float)
+        ag = df["away_goals"].astype(float)
+        neu = df["neutral"] if "neutral" in df.columns else pd.Series(False, index=df.index)
+        neu = neu.fillna(False).astype(bool)
+        no_ha = pd.concat([ag, hg[neu]])               # observations with no home term
+        base = float(no_ha.mean()) if len(no_ha) else 1.3
+        self._mu = float(np.clip(math.log(max(base, 0.3)), math.log(0.8), math.log(2.0)))
+        home_nn = hg[~neu]
+        if len(home_nn) >= 50 and home_nn.mean() > 0:
+            self._home_adv = float(np.clip(math.log(home_nn.mean()) - self._mu, 0.0, 0.5))
+        else:
+            self._home_adv = _HOME_ADV
+
     def _ensure_cache(self, data: pd.DataFrame) -> None:
         # Content fingerprint instead of id(data): recycled object ids could
         # wrongly skip a rebuild when a different DataFrame reuses an address.
-        fingerprint = _data_fingerprint(data)
+        # R10: when EM-μ/ha is on, estimate them first so they enter the
+        # fingerprint — otherwise a flag toggle would falsely cache-hit.
+        if self._em_mu_ha:
+            self._estimate_mu_ha(data)
+        fingerprint = _data_fingerprint(data) + (round(self._mu, 4), round(self._home_adv, 4))
         if self._data_id == fingerprint:
             return
         self._data_id = fingerprint
@@ -474,6 +508,7 @@ class KalmanStrengthFeatures(FeatureModule):
                     home_obs, away_obs,
                     bool(row.get("neutral", False)),
                     float(row.get("match_weight", 1.0)),
+                    self._mu, self._home_adv,
                 )
 
             if record_hist:
@@ -525,7 +560,8 @@ class KalmanStrengthFeatures(FeatureModule):
         Uses a class-level cache so EM runs at most once per unique dataset
         even when multiple instances are created for the same context data.
         """
-        cache_key = _data_fingerprint(data)
+        # μ/ha enter the key: they change the forward pass → smoothed states → q.
+        cache_key = _data_fingerprint(data) + (round(self._mu, 4), round(self._home_adv, 4))
         if cache_key in KalmanStrengthFeatures._EM_Q_CACHE:
             self._q_per_year = KalmanStrengthFeatures._EM_Q_CACHE[cache_key]
             # Keep the class-level q in sync on cache HIT too — otherwise
