@@ -70,5 +70,32 @@
     "away_goals": 1,
     "neutral": true,
     "group": "D"
+  },
+  {
+    "date": "2026-06-14",
+    "home_team": "Germany",
+    "away_team": "Cura\u00e7ao",
+    "home_goals": 7,
+    "away_goals": 1,
+    "neutral": true,
+    "group": "E"
+  },
+  {
+    "date": "2026-06-14",
+    "home_team": "Ivory Coast",
+    "away_team": "Ecuador",
+    "home_goals": 1,
+    "away_goals": 0,
+    "neutral": true,
+    "group": "E"
+  },
+  {
+    "date": "2026-06-14",
+    "home_team": "Netherlands",
+    "away_team": "Japan",
+    "home_goals": 2,
+    "away_goals": 2,
+    "neutral": true,
+    "group": "F"
   }
 ]
