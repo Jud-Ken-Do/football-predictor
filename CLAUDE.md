@@ -137,6 +137,7 @@ State per team: `x = [att, def]` in log-goals space.
 - **Time update**: `P += q²·Δt·I`; q tuned via EM (Shumway-Stoffer M-step), stored in `_LAST_TUNED_Q`
 - **EKF observation (joint 4-d, roadmap R4)**: both teams stacked into `z = [att_h, def_h, att_a, def_a]` with block-diagonal prior; home goals `H1 = [λ_h,0,0,λ_h]` then away goals `H2 = [0,λ_a,λ_a,0]` as coupled updates on the joint 4×4 covariance; `S = H M H' + λ/match_weight`; Joseph-form update; marginals scattered back per team (no global cross-team covariance). Replaced the per-team `extra_obs_var` approximation — mathematically correct but metric-neutral (XGB is piecewise-constant; see ARCHITECTURE_REVIEW R4)
 - **xG observation (2026-06-14, `constants.USE_XG_OBSERVATION=True`)**: when enabled, the EKF observes `0.5·goals + 0.5·xg` (calibrated xG attached via `data/xg_attach.py`) instead of raw goals — a lower-noise state-space observation (xG predicts future goals better than goals; Koopman-Lit). Falls back to goals when a match has no xG. Validated by `scripts/backtest.py --ablation --continental` (5/5 folds improved log-loss, biggest gains in CAF/CONCACAF; within per-fold CI but consistent across folds). xG sum is part of `_data_fingerprint` so EM q re-tunes when toggled.
+- **Baseline μ + home advantage (R10, 2026-06-15, `USE_KALMAN_EM_MU_HA=True`)**: estimated from the goal data (att/def are zero-mean → no-home-term goals give E[goals]=exp(μ); non-neutral home goals give exp(home_adv)), clamped, folded into the cache fingerprint — replaces hard-coded `log(1.3)` / `0.20`. Kept: WC ablation −0.0048 across all 3 folds (ARCHITECTURE_REVIEW R10). Revert via the flag.
 - **Training**: `use_smoothed=False` (default) — forward-only causal states, no RTS leakage
 - **RTS smoother**: available via `use_smoothed=True` for diagnostics only
 - Exposes `get_last_tuned_q()` classmethod so BayesPoisson can derive consistent half-life
@@ -259,7 +260,9 @@ Current calibrated values (from H2H analysis, updated 2026-06-10):
 - `scripts/update_wc2026.py` — live result ingestion, Kalman EKF updates
 - `scripts/backtest.py` — WC 2014/2018/2022 + continental evaluation with bootstrap CI + SHAP
 - `scripts/calibrate_confederations.py` — data-driven confederation strength derivation
-- `scripts/generate_submission.py` — competition output.csv with third-place advancement
+- `scripts/generate_submission.py` — competition output.csv. Two-pass optimiser (R8, 2026-06-15): pass 1 per-group (match EV + top-2 advancement), pass 2 credits tipped best-8 third-place teams via the global cut (cross-group coupling), +21.9 optimiser EV. `--no-two-pass` to disable.
+- `scripts/generate_league_submission.py` — independent "Expected Value FC" entry maximising expected match points under a 5/3/2/0 league rule (predicts draws only on coin-flips)
+- `scripts/roadmap_ablation.py` — A/B backtest for roadmap flags (R9 shrinkage, R10 μ/ha)
 
 ## Known limitations (not bugs, architectural constraints)
 
