@@ -628,12 +628,16 @@ def _get_model_vs_market():
         final = (1-w)·model + w·market   (w = _MARKET_1X2_BLEND = 0.70)
         ⇒ market = (final − (1-w)·model) / w     (only where the fixture has odds)
     A fixture "has odds" iff the blend actually moved its probabilities.
-    Returns (rows, adv_blended, adv_model). Honest framing lives in the UI:
-    a model that diverges from the market is usually overconfident, not right
-    (the market beat the full stack head-to-head — see W17 / ARCHITECTURE_REVIEW).
+    Returns (rows, adv_blended, adv_model, fresh). `fresh` is False when the
+    cached match_data predates the pre-blend feature (Streamlit caches by a
+    function's own code, not by the changed function it calls) — the UI then
+    asks the user to clear the cache instead of showing a blank table. Honest
+    framing lives in the UI: a model that diverges from the market is usually
+    overconfident, not right (the market beat the full stack head-to-head — W17).
     """
     from generate_submission import estimate_advance_probs
     match_data, _ = _get_match_data()
+    fresh = any("p_home_preblend" in m for m in match_data)
     W = 0.70
     rows, blended_md, model_md = [], [], []
     for m in match_data:
@@ -660,7 +664,7 @@ def _get_model_vs_market():
         model_md.append(dict(m, p_home=mh, p_draw=md_, p_away=ma))
     adv_blended = estimate_advance_probs(blended_md, n_sims=20000)
     adv_model = estimate_advance_probs(model_md, n_sims=20000)
-    return rows, adv_blended, adv_model
+    return rows, adv_blended, adv_model, fresh
 
 
 @st.cache_data
@@ -1382,7 +1386,19 @@ with tab_modelmarket:
         "not the market being wrong — a what-my-model-believes lens, **not** hidden alpha."
     )
 
-    mvm_rows, _adv_blended, _adv_model = _get_model_vs_market()
+    mvm_rows, _adv_blended, _adv_model, _fresh = _get_model_vs_market()
+    if not _fresh:
+        st.warning(
+            "⚠️ **Stale cache** — the model's-eye (pre-blend) probabilities load on a "
+            "fresh model run, but Streamlit is serving a `match_data` cached before this "
+            "feature existed. Click **Clear cache** below (or ☰ menu → *Clear cache*), "
+            "then rerun.",
+            icon="⚠️",
+        )
+        if st.button("🔄 Clear cache & reload model's-eye view"):
+            st.cache_data.clear()
+            st.rerun()
+        st.stop()
     _covered = sorted(
         [r for r in mvm_rows if r["has_market"] and not r["played"]],
         key=lambda r: -r["tv"],
@@ -2347,9 +2363,55 @@ with tab_submission:
             "(`output_raw.csv`). They differ because the optimiser plays the points game, "
             "not the calibration game."
         )
-        sub_scores, sub_raw_tab, sub_compare = st.tabs([
+        sub_scores, sub_raw_tab, sub_compare, sub_league = st.tabs([
             "🏆 Submitted scorelines", "🎯 Most-likely scores", "✅ Scored vs actual",
+            "💡 League EV entry",
         ])
+
+        # ── League match-points-optimal entry (Expected Value FC) ──────────────
+        with sub_league:
+            _league_csv = _ROOT / "output" / "league_submission.csv"
+            _league_txt = _ROOT / "output" / "league_submission.txt"
+            st.caption(
+                "**Expected Value FC** — an independent entry that maximises *expected match "
+                "points* per fixture under the league rule (exact 5 · result+GD 3 · result 2 · "
+                "wrong 0), with no advancement bonus. It predicts a draw only on genuine "
+                "coin-flips, so it lands ~90% identical to the optimised entry — a clean A/B that "
+                "shows scoreline-shaping has little edge under this scoring."
+            )
+            _lc1, _lc2 = st.columns(2)
+            with _lc1:
+                if _league_csv.exists():
+                    st.download_button(
+                        "⬇ Download league_submission.csv",
+                        data=_league_csv.read_bytes(), file_name="league_submission.csv",
+                        mime="text/csv", use_container_width=True, key="dl_league")
+            with _lc2:
+                if st.button("🔄 Generate league EV entry", use_container_width=True, key="gen_league"):
+                    st.session_state["_gen_league"] = True
+            if st.session_state.pop("_gen_league", False):
+                with st.container(border=True):
+                    st.markdown("**Generating Expected Value FC…**")
+                    _stream(["python3.11", str(_ROOT / "scripts" / "generate_league_submission.py")],
+                            "Done — scroll down.", on_success=st.cache_data.clear)
+            if not _league_csv.exists():
+                st.info("Not generated yet — click **Generate league EV entry** above (or run "
+                        "`python3.11 scripts/generate_league_submission.py`).")
+            else:
+                if _league_txt.exists():
+                    st.code(_league_txt.read_text(), language=None)
+                _ldf = pd.read_csv(_league_csv)
+                _lrows = []
+                for _, _r in _ldf.iterrows():
+                    if pd.isna(_r["score1"]) or _r["score1"] == "":
+                        continue
+                    _lrows.append({
+                        "Grp": _r["group"],
+                        "Home": flag(_TEMPLATE_TO_SCHEDULE.get(str(_r["team1"]), str(_r["team1"]))),
+                        "Away": flag(_TEMPLATE_TO_SCHEDULE.get(str(_r["team2"]), str(_r["team2"]))),
+                        "Prediction": f"{int(_r['score1'])}–{int(_r['score2'])}",
+                    })
+                st.dataframe(pd.DataFrame(_lrows), use_container_width=True, hide_index=True)
 
         # ── Submitted (EV-optimised) scorelines ────────────────────────────────
         with sub_scores:
