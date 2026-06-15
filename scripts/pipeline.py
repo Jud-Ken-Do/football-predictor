@@ -118,6 +118,12 @@ def step_load(from_year: int = 2010, friendly_weight: float = 0.7) -> tuple:
     if _c.USE_XG_OBSERVATION:
         from football_predictor.data.xg_attach import attach_calibrated_xg
         all_data = attach_calibrated_xg(all_data)
+    # R6 ingress validation — loud report of any WC-team coverage gap.
+    try:
+        from football_predictor.data.validation import validate_wc2026_coverage
+        validate_wc2026_coverage(all_data, min_matches=30)
+    except Exception as _exc:
+        _warn(f"ingress validation skipped: {_exc}")
     comp_mask = all_data["tournament"].str.lower().str.contains(
         "qualif|world cup|copa|euro|nations|africa|asian|gold cup", na=False
     )

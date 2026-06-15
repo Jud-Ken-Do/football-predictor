@@ -263,6 +263,7 @@ Current calibrated values (from H2H analysis, updated 2026-06-10):
 - `scripts/generate_submission.py` — competition output.csv. Two-pass optimiser (R8, 2026-06-15): pass 1 per-group (match EV + top-2 advancement), pass 2 credits tipped best-8 third-place teams via the global cut (cross-group coupling), +21.9 optimiser EV. `--no-two-pass` to disable.
 - `scripts/generate_league_submission.py` — independent "Expected Value FC" entry maximising expected match points under a 5/3/2/0 league rule (predicts draws only on coin-flips)
 - `scripts/roadmap_ablation.py` — A/B backtest for roadmap flags (R9 shrinkage, R10 μ/ha)
+- `data/validation.py::validate_wc2026_coverage()` (R6) — startup ingress check: asserts all 48 WC teams have ≥30 training matches + a hit in every lookup (rankings/odds/transfermarkt/fc26/api_form/injuries/xG); prints a coverage matrix, warns on gaps, `strict=True` hard-fails on critical gaps. Wired non-fatally into pipeline + predict. Catches silent name-miss bugs.
 
 ## Known limitations (not bugs, architectural constraints)
 

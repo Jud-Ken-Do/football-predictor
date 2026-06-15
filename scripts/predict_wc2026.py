@@ -250,6 +250,15 @@ def train_model(
         from football_predictor.data.xg_attach import attach_calibrated_xg
         all_data = attach_calibrated_xg(all_data)
 
+    # R6 ingress validation — loud report of any WC-team coverage gap (catches
+    # silent name-miss bugs). Non-fatal: known gaps (e.g. New Zealand xG) expected.
+    if not quiet:
+        try:
+            from football_predictor.data.validation import validate_wc2026_coverage
+            validate_wc2026_coverage(all_data, min_matches=30)
+        except Exception as _exc:
+            print(f"  (ingress validation skipped: {_exc})")
+
     comp_mask = all_data["tournament"].str.lower().str.contains(
         "qualif|world cup|copa|euro|nations|africa|asian|gold cup", na=False
     )
