@@ -291,8 +291,13 @@ def run_backtest(
     include_shap: bool = True,
     label: str = "",
     friendly_weight: float = 0.3,
-    xg_mode: str = "baseline",
+    xg_mode: str | None = None,
 ) -> dict:
+    # Default follows the deployed config so a plain backtest reflects production;
+    # the ablation passes explicit "baseline"/"full" to override.
+    if xg_mode is None:
+        from football_predictor import constants as _c0
+        xg_mode = "full" if _c0.USE_XG_OBSERVATION else "baseline"
     print(f"\n{'─'*60}")
     print(f"  Backtest: WC {year} Group Stage  [xg_mode={xg_mode}]")
     print(f"{'─'*60}")
@@ -494,13 +499,16 @@ def print_match_breakdown(test_df: pd.DataFrame, proba: np.ndarray, y_true: np.n
 # ── Continental tournament backtest ───────────────────────────────────────────
 
 def run_continental_backtest(name: str, cfg: dict, friendly_weight: float = 0.3,
-                             xg_mode: str = "baseline") -> dict:
+                             xg_mode: str | None = None) -> dict:
     """Evaluate model on a continental tournament group stage.
 
     Uses the same train/eval pipeline as WC backtests but with a
     tournament-specific name fragment filter for the evaluation set.
     Provides additional statistical power beyond the 96-match WC sample.
     """
+    if xg_mode is None:
+        from football_predictor import constants as _c0
+        xg_mode = "full" if _c0.USE_XG_OBSERVATION else "baseline"
     print(f"\n{'─'*60}")
     print(f"  Continental backtest: {name}  [xg_mode={xg_mode}]")
     print(f"{'─'*60}")

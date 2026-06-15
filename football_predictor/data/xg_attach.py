@@ -82,7 +82,17 @@ def attach_calibrated_xg(df: pd.DataFrame, use_cache: bool = True) -> pd.DataFra
 
     dates = pd.to_datetime(df["date"])
     for i, (home, away, d) in enumerate(zip(df["home_team"], df["away_team"], dates)):
-        rec = src.get((frozenset((home, away)), str(d.date())))
+        # Match on team-pair + date with ±1-day tolerance: football-data.co.uk
+        # and martj42 disagree by a day on many fixtures (timezone of the local
+        # kickoff vs UTC). Exact-date matching silently dropped ~12% of xG
+        # records — e.g. all Haiti/Curaçao CONCACAF qualifiers. Two given teams
+        # virtually never play twice within a day, so the pair key keeps this safe.
+        pair = frozenset((home, away))
+        rec = None
+        for delta in (0, 1, -1):
+            rec = src.get((pair, str((d + pd.Timedelta(days=delta)).date())))
+            if rec is not None:
+                break
         if rec is None:
             continue
         if home == rec["teamA"]:
