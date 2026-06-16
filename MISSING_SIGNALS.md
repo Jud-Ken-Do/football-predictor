@@ -32,14 +32,14 @@ this _class_ of signal moves the metric at all before sourcing anything.
 | Signal | Why it helps | Status |
 |---|---|---|
 | ~~**Rest days / congestion**~~ | days since last match + matches in last 30d → fatigue/freshness | ✅ **DONE 2026-06-14** (`features/rest.py`, kept: wide backtest 0.9512→0.9481) |
-| **Qualification dominance** | pts %, goal diff, win rate in this team's qualifying campaign → "cruised in vs scraped in" | ✅ Trainable, free |
-| **Penalty-shootout strength** | historical shootout W/L + conversion rate → fixes knockout coin-flips | ✅ Trainable, free |
+| ~~**Qualification dominance**~~ | pts %, goal diff, win rate in this team's qualifying campaign → "cruised in vs scraped in" | ✅ **DONE 2026-06-16** (`features/qualification.py`, kept: wide set 0.9473→0.9464, 5/7 folds better) |
+| **Penalty-shootout strength** | historical shootout W/L + conversion rate → fixes knockout coin-flips | ⬜ Trainable, free — but needs `shootouts.csv` and only affects the KO simulation, so the group-stage backtest can't gate it |
 
 ## Tier 1 — High value, trainable, easy-ish to source
 
 | Signal | Why | Source | Collect |
 |---|---|---|---|
-| **All-time WC pedigree** | appearances / titles / best-finish → tournament overperformance (GER/BRA/ARG/URU beat their ratings at WCs) | Wikipedia, RSSSF | ✅ inherently historical |
+| ~~**All-time WC pedigree**~~ | appearances / titles / best-finish → tournament overperformance (GER/BRA/ARG/URU beat their ratings at WCs) | Wikipedia, RSSSF | ❌ **TESTED & REJECTED 2026-06-16** (`features/wc_pedigree.py`, derived as-of-date from 1930+ WC history): worsened all 3 WC folds (1.0036→1.0168, +0.0132). Overlaps `rankings`/`confederation`; acts as a team-ID proxy. Module kept in REGISTRY (off). |
 | **Manager tenure / stability** | months under current manager at match date → settled setups travel well | Transfermarkt, Wikipedia | ✅ "manager-since" dates per team |
 | **GK shot-stopping** | (xG faced − goals conceded) rolling → outsized in low-scoring knockout games | derive where xG exists; FBref GK tables | ✅ where xG exists |
 

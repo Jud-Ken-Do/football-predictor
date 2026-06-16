@@ -141,8 +141,13 @@ DEFAULT_FEATURE_MODULES = [
     "sos",              # strength of schedule: opponent-quality-adjusted win rate
     "h2h",              # head-to-head record
     "squad_strength",   # long-term attack/defence quality from intl results
+    "qualification",    # qualifier-only ppg/GD/win-rate as-of-date (Tier-0); KEPT
+                        # 2026-06-16: wide set 0.9473→0.9464, 5/7 folds better
     # ── Context / structure ───────────────────────────────────────────────────
     "confederation",    # UEFA/CONMEBOL/AFC/CAF/CONCACAF strength encoding
+    # "wc_pedigree" TESTED & REJECTED 2026-06-16: as-of-date WC apps/win-rate
+    # worsened all 3 WC folds (1.0036→1.0168, +0.0132) — overlaps ranking/
+    # confederation and acts as a team-ID proxy. Module kept in REGISTRY (off).
     # "tournament_stage" REMOVED from training (2026-06-12): the martj42
     # training data has no `stage` column, so every historical row got the
     # default "group_stage" — all six features were constants (dead weight,

@@ -100,7 +100,7 @@ Every feature source extends `FeatureModule` (`base.py`) with:
 
 Registered in `features/__init__.py::REGISTRY`. Two sets of active modules in `constants.py`:
 
-**`DEFAULT_FEATURE_MODULES` (12 modules — used in XGBoost training):**
+**`DEFAULT_FEATURE_MODULES` (13 modules — used in XGBoost training):**
 
 | Module | File | Features | Notes |
 |---|---|---|---|
@@ -112,12 +112,15 @@ Registered in `features/__init__.py::REGISTRY`. Two sets of active modules in `c
 | `sos` | `sos.py` | ~6 | Strength-of-schedule: opponent-quality-adjusted win rate |
 | `h2h` | `h2h.py` | ~8 | H2H win rate, avg goals, last 10 meetings |
 | `squad_strength` | `squad_strength.py` | 14 | 40-match rolling attack/defence from competitive history |
+| `qualification` | `qualification.py` | 10 | Qualifier-only ppg/GD/win-rate over last 10 qualifiers, as-of-date (Tier-0). KEPT 2026-06-16 (wide set 0.9473→0.9464, 5/7 folds better) |
 | `confederation` | `confederation.py` | ~6 | Data-derived offsets: CONMEBOL=65, UEFA=50, AFC=25, CAF=10, CONCACAF=−20, OFC=−40 |
 | `rankings` | `rankings.py` | ~4 | FIFA world ranking points |
 | `odds` | `odds.py` | ~10 | Bookmaker closing odds; `odds_available` flag drives context-adaptive ensemble |
 | `xg_form` | `xg_form.py` | 13 | Rolling xG/xGA — Excel (UEFA/AFC/CONMEBOL) + FBref JSON fallback |
 
 Removed from training (2026-06-12, see ARCHITECTURE_REVIEW.md): `tournament_stage` (all-constant in training data), `transfermarkt` (June-2026 values leaked into historical rows — now a WC context module).
+
+Tested & rejected (kept in `REGISTRY`, not in DEFAULT): `wc_pedigree` (`wc_pedigree.py`, 2026-06-16) — as-of-date WC apps/win-rate/gpg; worsened all 3 WC backtest folds (+0.0132), overlaps ranking/confederation. A/B harness: `scripts/feature_ablation.py`.
 
 **`WC_CONTEXT_MODULES` (7 modules — post-processing only, not in XGBoost):**
 

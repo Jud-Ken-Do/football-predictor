@@ -20,6 +20,8 @@ from football_predictor.features.odds import OddsFeatures
 from football_predictor.features.wc2026_market import WC2026MarketFeatures
 from football_predictor.features.xg_form import XGFormFeatures
 from football_predictor.features.transfermarkt import TransfermarktFeatures
+from football_predictor.features.qualification import QualificationFeatures
+from football_predictor.features.wc_pedigree import WCPedigreeFeatures
 
 REGISTRY: dict[str, type[FeatureModule]] = {
     "form": FormFeatures,
@@ -43,6 +45,8 @@ REGISTRY: dict[str, type[FeatureModule]] = {
     "wc2026_market": WC2026MarketFeatures,
     "xg_form": XGFormFeatures,
     "transfermarkt": TransfermarktFeatures,
+    "qualification": QualificationFeatures,
+    "wc_pedigree": WCPedigreeFeatures,
 }
 
 __all__ = [
