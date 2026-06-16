@@ -44,7 +44,7 @@ match_id,group,team1,team2,score1,score2
 43,H,Spain,Cape Verde,1,0
 44,H,Spain,Saudi Arabia,1,0
 45,H,Spain,Uruguay,1,0
-46,H,Cape Verde,Saudi Arabia,1,0
+46,H,Cape Verde,Saudi Arabia,0,1
 47,H,Cape Verde,Uruguay,0,1
 48,H,Saudi Arabia,Uruguay,0,1
 49,I,France,Senegal,1,0

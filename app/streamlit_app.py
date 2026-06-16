@@ -391,7 +391,30 @@ def _delete_result(home: str, away: str) -> None:
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("Controls")
+    # ── Global state header ───────────────────────────────────────────────────
+    from football_predictor import constants as _cst0
+    _rec0 = _load_recorded()
+    _n_rec0 = len(_rec0)
+    _latest0 = max(_rec0, key=lambda x: str(x.get("date", ""))) if _rec0 else None
+    _xg_on0 = getattr(_cst0, "USE_XG_OBSERVATION", False)
+    st.markdown("### 🌍 Tournament state")
+    _state0 = f"**{_n_rec0}/72** results recorded"
+    if _latest0:
+        _state0 += (
+            f"  \n<span style='font-size:0.76rem;color:rgba(255,255,255,0.55)'>latest: "
+            f"{_latest0['home_team']} {_latest0['home_goals']}–{_latest0['away_goals']} "
+            f"{_latest0['away_team']} · {_latest0.get('date','')}</span>"
+        )
+    st.markdown(_state0, unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='font-size:0.7rem;color:rgba(255,255,255,0.42);margin-top:3px'>"
+        f"🧠 {len(DEFAULT_FEATURE_MODULES)} features · {'xG on' if _xg_on0 else 'xG off'} · "
+        f"market blend 0.70</div>",
+        unsafe_allow_html=True,
+    )
+    if st.session_state.get("_last_action"):
+        st.caption(f"↳ {st.session_state['_last_action']}")
+    st.divider()
 
     # ── Simulation settings ───────────────────────────────────────────────────
     n_sims = st.select_slider(
@@ -408,6 +431,7 @@ with st.sidebar:
         st.cache_resource.clear()
         st.session_state.predictions_ready = False
         st.session_state.running = True
+        st.session_state["_last_action"] = "Refreshed — model retrained from scratch"
         st.rerun()
     st.caption("Clears cache and re-trains from scratch (~2 min).")
 
@@ -428,6 +452,7 @@ with st.sidebar:
         if st.button("Save result", use_container_width=True, key="rec_save"):
             _grp = _record_result(_rec_home, _rec_away, int(_hg), int(_ag))
             st.success(f"Saved — Group {_grp}: {_rec_home} **{int(_hg)}–{int(_ag)}** {_rec_away}")
+            st.session_state["_last_action"] = f"Recorded {_rec_home} {int(_hg)}–{int(_ag)} {_rec_away}"
             st.cache_data.clear()
             # Models must retrain too — Kalman/BayesPoisson update on actual
             # results via append_actual_results(); cache_data alone kept the
@@ -447,6 +472,7 @@ with st.sidebar:
                 )
                 if _col_d.button("✕", key=f"del_{_r['home_team']}_{_r['away_team']}", help="Delete"):
                     _delete_result(_r["home_team"], _r["away_team"])
+                    st.session_state["_last_action"] = f"Deleted {_r['home_team']} v {_r['away_team']}"
                     st.cache_data.clear()
                     st.cache_resource.clear()  # retrain without the deleted result
                     st.rerun()
@@ -932,29 +958,69 @@ with tab_groups:
     st.subheader("Group Stage")
     _submission_scores = _load_submission()
 
-    # Group selector as tab row
-    grp_tabs = st.tabs(sorted(GROUPS.keys()))
-    for grp_tab, grp in zip(grp_tabs, sorted(GROUPS.keys())):
-        with grp_tab:
-            group_matches = [m for m in match_data if m["group"] == grp]
+    # ── Day + Group filters (Today is the live default during the tournament) ──
+    import datetime as _dt
+    _today = _dt.date.today().isoformat()
+    _all_dates = sorted({str(m.get("date", "")) for m in match_data if m.get("date")})
+
+    def _day_label(_iso):
+        try:
+            _dd = _dt.date.fromisoformat(_iso)
+            _base = f"{_dd.strftime('%a %b')} {_dd.day}"
+        except Exception:
+            return _iso
+        if _iso == _today:
+            return f"📅 Today · {_base}"          # today, flagged with an icon
+        if _iso < _today:
+            return _base                          # past day
+        return f"○ {_base} · upcoming"            # future day (a native selectbox can't colour options)
+
+    # Chronological: past days → today → future days, with "All days" on top.
+    _day_map = {"All days": None}
+    for _d in _all_dates:
+        _day_map[_day_label(_d)] = _d
+    _day_labels = list(_day_map)
+    _today_label = next((l for l, v in _day_map.items() if v == _today), None)
+    _fc1, _fc2 = st.columns(2)
+    _day_sel = _fc1.selectbox(
+        "Day", _day_labels,
+        index=(_day_labels.index(_today_label) if _today_label else 0),
+    )
+    _grp_sel = _fc2.selectbox("Group", ["All groups"] + sorted(GROUPS.keys()), index=0)
+    _day_filter = _day_map[_day_sel]
+    _groups_to_show = sorted(GROUPS.keys()) if _grp_sel == "All groups" else [_grp_sel]
+
+    _shown_any = False
+    for grp in _groups_to_show:
+        group_matches = [m for m in match_data if m["group"] == grp]
+        day_matches = [m for m in group_matches
+                       if _day_filter is None or str(m.get("date", "")) == _day_filter]
+        if not day_matches:
+            continue
+        _shown_any = True
+        with st.container():
+            if _grp_sel == "All groups":
+                st.markdown(f"#### Group {grp}")
 
             # Fixtures with stacked bars
             col_left, col_right = st.columns([3, 2])
 
             with col_left:
-                st.markdown(f"**Group {grp} Fixtures**")
-                for m in group_matches:
+                st.markdown("**Fixtures**" + (f"  ·  {_day_sel}" if _day_filter else ""))
+                for m in day_matches:
                     played = m.get("played", False)
                     h, a = m["home_team"], m["away_team"]
                     ph, pd_, pa = m["p_home"], m["p_draw"], m["p_away"]
                     pred = _submission_scores.get((h, a))
+                    _dv = " · ".join(x for x in (str(m.get("date", "")), str(m.get("venue", ""))) if x)
 
                     if played:
                         hg, ag = int(m["actual_home_goals"]), int(m["actual_away_goals"])
                         result_col = _COL_HOME if hg > ag else (_COL_DRAW if hg == ag else _COL_AWAY)
                         pred_str = f"&nbsp;&nbsp;<span style='font-size:0.73rem;color:rgba(255,255,255,0.3)'>predicted {pred[0]}–{pred[1]}</span>" if pred else ""
                         st.markdown(
-                            f"<div style='padding:8px 0 4px'>"
+                            f"<div style='font-size:0.66rem;color:rgba(255,255,255,0.3);padding-top:8px'>{_dv}</div>"
+                            f"<div style='padding:0 0 4px'>"
                             f"<span style='font-size:0.82rem;color:rgba(255,255,255,0.45)'>{flag(h)} vs {flag(a)}</span>"
                             f"&nbsp;&nbsp;"
                             f"<span style='font-size:1.1rem;font-weight:700;color:{result_col}'>{hg}–{ag}</span>"
@@ -968,6 +1034,7 @@ with tab_groups:
                         h_col = _COL_HOME if ph >= pa else "rgba(74,222,128,0.35)"
                         a_col = _COL_AWAY if pa > ph else "rgba(251,146,60,0.35)"
                         st.markdown(
+                            f"<div style='font-size:0.66rem;color:rgba(255,255,255,0.3);margin-bottom:1px'>{_dv}</div>"
                             f"<div style='margin-bottom:2px;font-size:0.8rem;color:rgba(255,255,255,0.5)'>"
                             f"{flag(h)} vs {flag(a)}{pred_str}</div>"
                             f"<div style='display:flex;height:32px;border-radius:6px;overflow:hidden;"
@@ -1027,6 +1094,9 @@ with tab_groups:
                     xaxis_tickformat=".1%", showlegend=False,
                 )
                 _pc(fig_grp, use_container_width=True)
+
+    if not _shown_any:
+        st.info(f"No fixtures on **{_day_sel}**." if _day_filter else "No fixtures to show.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1213,31 +1283,127 @@ with tab_bracket:
         "The % above each tie is the favourite's chance of advancing."
     )
 
+    # ── Edit assumptions → the bracket below re-draws ─────────────────────────
+    with st.expander("🔮 Edit assumptions — re-draw the bracket", expanded=False):
+        st.caption(
+            "Two levers (session-only — your saved results are untouched):\n"
+            "- **① Lock a result** → changes who **qualifies** + the seeding.\n"
+            "- **② Nudge a team's strength** → changes who **wins the knockouts**. The KO is decided "
+            "by team *strength*, not group results — so forcing a 9-0 group win won't change the "
+            "champion if that team already tops its group. Use ② to make a team a real contender."
+        )
+        _wf = st.session_state.setdefault("_whatif", {})
+        _wf_str = st.session_state.setdefault("_whatif_str", {})
+
+        st.markdown("**① Lock a result**")
+        _wf_labels = {f"{m['home_team']} vs {m['away_team']}  ·  {m.get('date','')}": m
+                      for m in match_data if not m.get("played")}
+        if _wf_labels:
+            _wc1, _wc2, _wc3, _wc4 = st.columns([4, 1, 1, 2])
+            _wf_pick = _wc1.selectbox("Fixture", list(_wf_labels), key="wf_pick", label_visibility="collapsed")
+            _wf_h = _wc2.number_input("H", 0, 9, 1, key="wf_h", label_visibility="collapsed")
+            _wf_a = _wc3.number_input("A", 0, 9, 0, key="wf_a", label_visibility="collapsed")
+            if _wc4.button("➕ Lock", key="wf_add", use_container_width=True):
+                _m = _wf_labels[_wf_pick]
+                _wf[(_m["home_team"], _m["away_team"])] = (int(_wf_h), int(_wf_a))
+                st.rerun()
+        else:
+            st.caption("All fixtures are played.")
+
+        st.markdown("**② Nudge a team's strength**")
+        _sc1, _sc2, _sc3 = st.columns([3, 4, 2])
+        _str_team = _sc1.selectbox("Team", sorted(ALL_TEAMS), key="wf_str_team", label_visibility="collapsed")
+        _str_delta = _sc2.slider("Strength", -2.5, 2.5, 0.0, 0.25, key="wf_str_delta",
+                                 label_visibility="collapsed",
+                                 help="− weaker … + stronger. The number is a log-odds strength "
+                                      "shift; the caption below shows what it does to a 50/50 tie.")
+        _eff_prob = float(1.0 / (1.0 + np.exp(-1.7 * _str_delta)))
+        _sc2.caption(
+            f"≈ a 50/50 knockout → **{_eff_prob:.0%}** for this team"
+            if abs(_str_delta) > 1e-9 else "0 = no change (live model strength)"
+        )
+        if _sc3.button("➕ Apply", key="wf_str_add", use_container_width=True):
+            if abs(_str_delta) > 1e-9:
+                _wf_str[_str_team] = _str_delta
+            else:
+                _wf_str.pop(_str_team, None)
+            st.rerun()
+
+        if _wf or _wf_str:
+            if _wf:
+                st.markdown("**Locked results:**  " + "   ·   ".join(
+                    f"{flag(_k[0])} {_v[0]}–{_v[1]} {flag(_k[1])}" for _k, _v in _wf.items()))
+            if _wf_str:
+                st.markdown("**Strength nudges:**  " + "   ·   ".join(
+                    f"{flag(_t)} → {1.0/(1.0+np.exp(-1.7*_d)):.0%} in even ties"
+                    for _t, _d in _wf_str.items()))
+            if st.button("↺ Clear all assumptions", key="wf_clear"):
+                st.session_state["_whatif"] = {}
+                st.session_state["_whatif_str"] = {}
+                st.rerun()
+
+    # Effective match data (locked results) + pair probabilities (strength nudges).
+    _wf = st.session_state.get("_whatif", {})
+    _wf_str = st.session_state.get("_whatif_str", {})
+    _wf_any = bool(_wf or _wf_str)
+    _md_eff = [
+        (dict(m, played=True,
+              actual_home_goals=_wf[(m["home_team"], m["away_team"])][0],
+              actual_away_goals=_wf[(m["home_team"], m["away_team"])][1])
+         if (not m.get("played") and (m["home_team"], m["away_team"]) in _wf) else m)
+        for m in match_data
+    ]
+    _pp_eff = pair_probs
+    if _wf_str:
+        import math as _wmath
+        def _shift_pair(_ph, _pd, _pa, _d):
+            _ph, _pa = max(_ph, 1e-9), max(_pa, 1e-9)
+            _r = _wmath.exp(_wmath.log(_ph / _pa) + 1.7 * _d)
+            _ha = _ph + _pa
+            _ph2, _pa2 = _r / (1.0 + _r) * _ha, _ha / (1.0 + _r)
+            _tot = _ph2 + _pd + _pa2
+            return _ph2 / _tot, _pd / _tot, _pa2 / _tot
+        _pp_eff = {
+            (_a, _b): (_shift_pair(*_pr, _wf_str.get(_a, 0.0) - _wf_str.get(_b, 0.0))
+                       if (_a in _wf_str or _b in _wf_str) else _pr)
+            for (_a, _b), _pr in pair_probs.items()
+        }
+    if _wf_any:
+        st.warning(f"🔮 **What-if scenario active** — {len(_wf)} locked result(s), "
+                   f"{len(_wf_str)} strength nudge(s). The bracket below is your scenario. "
+                   f"Use *Clear all assumptions* to reset.", icon="🔮")
+
     try:
-        _bk = _bracket.build_expected_bracket(match_data, pair_probs)
+        _bk = _bracket.build_expected_bracket(_md_eff, _pp_eff)
         _champ = _bk["champion"]
         _title_odds = mc_counts.get(_champ, {}).get("winner", 0.0)
+        _odds_str = "" if _wf_any else f" · {_title_odds:.0%} to lift the trophy across all {n_sims:,} sims"
         st.markdown(
-            f"### 🏆 Predicted champion: {flag(_champ)}　"
+            f"### 🏆 Most-likely-path champion: {flag(_champ)}　"
             f"<span style='color:#71717a;font-size:0.8rem;'>"
-            f"{_bk['champion_p']:.0%} to win this projected final · "
-            f"{_title_odds:.0%} to lift the trophy across all {n_sims:,} simulated paths</span>",
+            f"{_bk['champion_p']:.0%} to win this projected final{_odds_str}</span>",
             unsafe_allow_html=True,
         )
+        # Chalk-path vs overall-odds note — only meaningful for the live (no what-if) view.
+        if not _wf_any:
+            _mc_fav = summary_df.iloc[0]["Team"]
+            if _mc_fav != _champ:
+                _fav_odds = mc_counts.get(_mc_fav, {}).get("winner", 0.0)
+                st.info(
+                    f"ℹ️ This is the single **chalk path** (favourite wins every round). "
+                    f"**{_mc_fav}** has the highest *overall* title odds ({_fav_odds:.0%}) — it "
+                    f"wins more simulated paths but isn't favoured on this one route. See **Overview**.",
+                    icon="ℹ️",
+                )
         _fig_bracket = _bracket.bracket_figure(_bk, flags=_FLAGS)
         _pc(_fig_bracket, use_container_width=True)
-        st.caption(
-            "This is one single most-likely route. A team can reach the final on many other "
-            "paths — the heatmap below gives each team's full advancement probability across "
-            "all simulations, which is the more complete picture."
-        )
     except Exception as _bexc:
         st.warning(f"Bracket view unavailable: {_bexc}")
 
     st.divider()
 
     # ── Advancement probabilities (Monte Carlo) ───────────────────────────────
-    st.markdown("**Advancement probabilities — every team × round**")
+    st.markdown("**Advancement probabilities — every team × round**  ·  *sorted by title odds, highest first*")
     st.caption(f"{n_sims:,} Monte Carlo simulations")
 
     # Heatmap: teams × rounds
@@ -1409,8 +1575,10 @@ with tab_modelmarket:
     if _covered:
         mc2.metric("Biggest disagreement",
                    f"{_covered[0]['home']} v {_covered[0]['away']}",
-                   delta=f"TV {_covered[0]['tv']:.2f}")
+                   delta=f"gap {_covered[0]['tv']:.2f}")
         mc3.metric("Avg model↔market gap", f"{np.mean([r['tv'] for r in _covered]):.3f}")
+    st.caption("‘Gap’ = total-variation distance between the model's and the market's "
+               "1X2 probabilities (0 = identical, 1 = opposite). Bigger = stronger disagreement.")
 
     st.divider()
     _left, _right = st.columns([3, 2])
@@ -2355,17 +2523,19 @@ with tab_submission:
         st.caption(f"Showing {len(_filt)} of 72 matches"
                    + (f"  ·  ⚠️ {_filt['upset'].sum()} upset submissions" if _filt["upset"].any() else ""))
 
-        # ── Sub-tabs ──────────────────────────────────────────────────────────
-        st.caption(
-            "Two different scorelines per match: **Submitted** = the points-maximising "
-            "tip (`output.csv`, e.g. 1-0 even for big favourites — that's EV-optimal under "
-            "the scoring rules); **Most-likely** = the model's single modal scoreline "
-            "(`output_raw.csv`). They differ because the optimiser plays the points game, "
-            "not the calibration game."
+        # ── Four consistent views of the same 72 matches ──────────────────────
+        st.markdown(
+            "**Four views of the same 72 fixtures.** All obey the filters above, and every "
+            "view shows the **actual result + ✅/❌** once a match is played:\n"
+            "- 🏆 **My entry** — the scoreline you submitted; *points-optimised* (1-0 even for big "
+            "favourites is EV-optimal here). `output.csv`\n"
+            "- 🎯 **Model forecast** — what the model genuinely predicts: most-likely score, "
+            "win/draw/away %, and xG. *Not* points-shaped. `output_raw.csv`\n"
+            "- ⚖️ **Side-by-side** — my entry vs the model's most-likely vs the actual, graded\n"
+            "- 💡 **League entry** — an alternative entry maximising expected *match* points"
         )
         sub_scores, sub_raw_tab, sub_compare, sub_league = st.tabs([
-            "🏆 Submitted scorelines", "🎯 Most-likely scores", "✅ Scored vs actual",
-            "💡 League EV entry",
+            "🏆 My entry", "🎯 Model forecast", "⚖️ Side-by-side", "💡 League entry",
         ])
 
         # ── League match-points-optimal entry (Expected Value FC) ──────────────
@@ -2409,13 +2579,15 @@ with tab_submission:
                         "Grp": _r["group"],
                         "Home": flag(_TEMPLATE_TO_SCHEDULE.get(str(_r["team1"]), str(_r["team1"]))),
                         "Away": flag(_TEMPLATE_TO_SCHEDULE.get(str(_r["team2"]), str(_r["team2"]))),
-                        "Prediction": f"{int(_r['score1'])}–{int(_r['score2'])}",
+                        "EV pick": f"{int(_r['score1'])}–{int(_r['score2'])}",
                     })
                 st.dataframe(pd.DataFrame(_lrows), use_container_width=True, hide_index=True)
 
         # ── Submitted (EV-optimised) scorelines ────────────────────────────────
         with sub_scores:
-            st.caption("From `output.csv` — the points-maximising scoreline optimizer. Use **Regenerate** above to refresh.")
+            st.caption("**My submitted entry** — the points-maximising scoreline per fixture "
+                       "(`output.csv`). `⚠️` = upset (entry differs from the favourite). Use "
+                       "**Regenerate** above to refresh.")
             if _sort == "Group order":
                 _gcols = st.columns(3)
                 for _gi, _grp in enumerate(sorted(_filt["group"].unique())):
@@ -2482,16 +2654,30 @@ with tab_submission:
         # ── Raw probabilities ──────────────────────────────────────────────────
         with sub_raw_tab:
             st.caption(
-                "From `output_raw.csv` — direct model output. **Most likely** = `floor(λ)`, the "
-                "single highest-probability score (mostly 1–0/1–1: that is genuinely where the "
-                "probability concentrates). **Realistic sample** = one random draw from the "
-                "match's distribution — shows the spread real football has, but is *not* more "
-                "accurate. **xG** = expected goals (the true continuous prediction)."
+                "**What the model genuinely predicts** (`output_raw.csv`). **Most likely** = the "
+                "modal score `floor(λ)` (mostly 1–0/1–1 — where the probability concentrates); "
+                "**2nd most likely** = the next-most-probable scoreline, a real alternative; "
+                "**xG** = expected goals. **Actual** grades the model's call once a match is played."
             )
             if _sub_raw is None:
                 st.info("No raw output file — run Refresh predictions to generate it.")
             else:
-                _has_samp = _filt["samp_s1"].notna().any()
+                _show_sample = st.toggle(
+                    "Show ‘2nd most likely’ column", value=False,
+                    help="The next-most-probable exact scoreline after the modal one — a genuine "
+                         "alternative computed from the Poisson grid, not a random draw.")
+
+                from math import exp as _exp, factorial as _fact
+                def _alt_score(_lh, _la, _max_g=6):
+                    """2nd-most-likely exact scoreline from the independent-Poisson grid."""
+                    def _pois(_k, _l): return _exp(-_l) * _l ** _k / _fact(_k)
+                    _grid = sorted(
+                        (((_h, _a), _pois(_h, _lh) * _pois(_a, _la))
+                         for _h in range(_max_g + 1) for _a in range(_max_g + 1)),
+                        key=lambda x: -x[1],
+                    )
+                    return _grid[1][0] if len(_grid) > 1 else _grid[0][0]
+
                 _rrows = []
                 for _, _r in _filt.iterrows():
                     if _r["p_home"] is None:
@@ -2501,10 +2687,21 @@ with tab_submission:
                         "Away": flag(_r["a_sched"]),
                         "Most likely": f"{_r['pred_s1']}–{_r['pred_s2']}",
                     }
-                    if _has_samp and _r["samp_s1"] is not None:
-                        _row_d["Realistic sample"] = f"{int(_r['samp_s1'])}–{int(_r['samp_s2'])}"
-                    elif _has_samp:
-                        _row_d["Realistic sample"] = "—"
+                    if _show_sample and pd.notna(_r["lam_h"]) and pd.notna(_r["lam_a"]):
+                        _a1s, _a2s = _alt_score(float(_r["lam_h"]), float(_r["lam_a"]))
+                        _row_d["2nd most likely"] = f"{_a1s}–{_a2s}"
+                    elif _show_sample:
+                        _row_d["2nd most likely"] = "—"
+                    # Actual + grading of the MODEL's most-likely call (consistent with other tabs).
+                    if _r["played"]:
+                        _a1, _a2 = int(_r["act_s1"]), int(_r["act_s2"])
+                        _po = "h" if _r["pred_s1"] > _r["pred_s2"] else ("a" if _r["pred_s1"] < _r["pred_s2"] else "d")
+                        _ao = "h" if _a1 > _a2 else ("a" if _a1 < _a2 else "d")
+                        _mark = ("✅ exact" if (_r["pred_s1"], _r["pred_s2"]) == (_a1, _a2)
+                                 else ("✅" if _po == _ao else "❌"))
+                        _row_d["Actual"] = f"{_a1}–{_a2} {_mark}"
+                    else:
+                        _row_d["Actual"] = "—"
                     _row_d.update({
                         "Home win": _r["p_home"], "Draw": _r["p_draw"], "Away win": _r["p_away"],
                         "xG H": _r["lam_h"], "xG A": _r["lam_a"],
@@ -2574,7 +2771,7 @@ with tab_submission:
                     styles = [""] * len(row)
                     idx = list(row.index)
                     if row.get("Δ") == "≠":
-                        for col in ["Optimised", "Model predicted"]:
+                        for col in ["Submitted", "Most-likely"]:
                             if col in idx:
                                 styles[idx.index(col)] = "background-color:#4d2800;color:#ffb300"
                     return styles

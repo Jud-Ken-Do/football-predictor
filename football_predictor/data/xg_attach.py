@@ -68,8 +68,16 @@ def attach_calibrated_xg(df: pd.DataFrame, use_cache: bool = True) -> pd.DataFra
 
     Rows with no xG from any source get NaN (the Kalman falls back to goals for
     those). Calibration is fit on the matched rows of ``df`` only.
+
+    Idempotent: if ``df`` already carries xG columns (e.g. attached upstream and
+    re-attached by the coverage validator), they are dropped first — otherwise
+    the calibration rename below collides into duplicate ``home_xg`` columns and
+    raises ``ValueError: Data must be 1-dimensional``.
     """
     df = df.copy()
+    df = df.drop(columns=[c for c in ("home_xg", "away_xg", "_xg_source",
+                                      "_raw_home_xg", "_raw_away_xg")
+                          if c in df.columns])
     src = _collect_source_matches(use_cache=use_cache)
     if not src:
         df["home_xg"] = np.nan

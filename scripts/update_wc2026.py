@@ -154,7 +154,7 @@ def cmd_record(args: argparse.Namespace) -> None:
     print(f"\n  Recorded: {home} {hg}-{ag} {away}  ({result_str})")
     print(f"  Saved to: {RESULTS_FILE}")
     print(f"  Total results on file: {len(results)}")
-    print(f"\n  Run 'python3 scripts/predict_wc2026.py' to refresh predictions.")
+    print(f"\n  Run 'python3.11 scripts/predict_wc2026.py' to refresh predictions.")
 
 
 def cmd_list(args: argparse.Namespace) -> None:
